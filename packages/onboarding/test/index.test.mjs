@@ -57,6 +57,7 @@ test('rejects invalid or unknown Project bindings without mutating completed sta
 
 test('rejects provider ids at the logical destination boundary', async () => {
   const { flow, calls } = setup();
+  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
   const result = await flow.destinations({
     parent: { channelId: 'discord-123' },
     children: [{ childId: 'alex', destination: { key: 'alex' } }],
@@ -75,8 +76,9 @@ test('reports incomplete destination and extension checks without passing accept
 
   await flow.destinations({ children: [{ childId: 'alex', destination: 'alex' }] });
   const result = await flow.projects([{ childId: 'alex', projectId: 'g-p-12345678901234567890123456789012' }]);
-  assert.equal(result.current, 'acceptance');
-  assert.match(result.state.projects.detail, /extension tab \[redacted\]/);
+  assert.equal(result.current, 'projects');
+  assert.match(result.state.projects.detail, /extension tab token=\[redacted\]/);
   const acceptance = await flow.acceptance();
-  assert.equal(acceptance.acceptance.ok, true);
+  assert.equal(acceptance.ok, false);
+  assert.deepEqual(acceptance.checks, ['projects', 'acceptance']);
 });

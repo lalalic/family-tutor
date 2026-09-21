@@ -15,6 +15,10 @@ supply a raw channel ID.
 
 The customer-facing Chrome adapter is documented in [`docs/extension.md`](docs/extension.md).
 
+The no-JSON-editing customer setup and repeatable acceptance flow is documented
+in [`docs/onboarding.md`](docs/onboarding.md) and implemented by
+[`@family-tutor/onboarding`](packages/onboarding/).
+
 ## Create a private/local instance
 
 All real family configuration, learner details, Discord identifiers, and durable learner memory belong under an ignored run directory:

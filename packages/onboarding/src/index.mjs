@@ -34,7 +34,7 @@ function safeDetail(error) {
   const message = String(error?.message || error || 'setup is unavailable')
     .replace(/(?:wss?|https?):\/\/[^\s)]+/gi, '[endpoint]')
     .replace(/\b(token|authorization|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
-    .replace(/\b(?:providerId|channelId|discordChannelId)\s*[:=]\s*[^\s,;]+/gi, '$&=[redacted]');
+    .replace(/\b(providerId|channelId|discordChannelId)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]');
   return message.slice(0, 240);
 }
 
@@ -77,10 +77,14 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
       chatgpt: state.chatgpt.connected && state.chatgpt.mcpConfigured,
       discord: state.discord.invited,
       destinations: state.destinations.parent && children.length > 0 && children.every(childId => state.destinations.children.includes(childId)),
-      projects: children.length > 0 && missingProjects.length === 0 && state.projects.ready === true,
+      // A logical Project binding is the setup milestone. Extension health is
+      // retained as a recoverable diagnostic and is checked by the live probe.
+      projects: children.length > 0 && missingProjects.length === 0,
       acceptance: state.acceptance?.ok === true,
     };
-    const current = STEP_ORDER.find(step => !checks[step]) || null;
+    const current = state.destinations.detail
+      ? 'destinations'
+      : STEP_ORDER.find(step => !checks[step]) || null;
     return clone({ familyId: normalizedFamilyId, steps: STEP_ORDER.map(step => ({ id: step, label: STEP_LABELS[step], complete: checks[step] })), current, missingProjects, state: { ...state, destinations: { ...state.destinations, children: [...state.destinations.children] } } });
   }
 
@@ -123,6 +127,7 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
         await bindChild({ familyId: normalizedFamilyId, childId, destination: logicalDestination(child.destination, 'child destination') });
         if (!state.destinations.children.includes(childId)) state.destinations.children.push(childId);
       }
+      delete state.destinations.detail;
     } catch (error) { state.destinations.detail = safeDetail(error); }
     return status();
   }
