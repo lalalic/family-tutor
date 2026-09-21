@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProvisioningStore } from '../../core/src/storage.mjs';
-import { createHostedMcpAdapter } from '../src/adapter.mjs';
+import { createHostedMcpAdapter, createHostedMcpServer } from '../src/adapter.mjs';
 
 function setup() {
   const store = createProvisioningStore({ idGenerator: prefix => `${prefix}-test` });
@@ -145,4 +145,21 @@ test('does not leak authentication-store exceptions during discovery', async () 
   });
   const response = await adapter.handle({ jsonrpc: '2.0', id: 11, method: 'tools/list' }, { headers: { authorization: 'Bearer token' } });
   assert.deepEqual(response.error, { code: -32001, message: 'authentication required' });
+});
+
+test('serves content-free liveness and readiness probes', async () => {
+  const { store } = setup();
+  const adapter = createHostedMcpAdapter({ store });
+  const server = createHostedMcpServer({ adapter, readinessCheck: () => ({ status: 'unavailable' }) });
+  await server.start();
+  try {
+    const health = await fetch(`${server.endpoint().replace('/mcp', '')}/healthz`);
+    const ready = await fetch(`${server.endpoint().replace('/mcp', '')}/readyz`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: 'ok' });
+    assert.equal(ready.status, 503);
+    assert.deepEqual(await ready.json(), { status: 'unavailable' });
+  } finally {
+    await server.close();
+  }
 });

@@ -157,9 +157,21 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
 
 function cryptoRandomId() { return `req_${randomUUID()}`; }
 
-export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024 } = {}) {
+export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024, healthCheck = async () => ({ status: 'ok' }), readinessCheck = async () => ({ status: 'ready' }) } = {}) {
   if (!adapter?.handle) throw new Error('adapter is required');
   const server = http.createServer(async (req, res) => {
+    if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/readyz')) {
+      try {
+        const result = await (req.url === '/healthz' ? healthCheck() : readinessCheck());
+        const status = result?.status === 'ok' || result?.status === 'ready' ? 200 : 503;
+        const data = Buffer.from(JSON.stringify({ status: result?.status || 'unavailable' }));
+        res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': data.length });
+        return res.end(data);
+      } catch {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ status: 'unavailable' }));
+      }
+    }
     if (req.method !== 'POST' || req.url !== '/mcp') { res.writeHead(404); return res.end(); }
     let size = 0; const chunks = [];
     try {
