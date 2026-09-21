@@ -6,6 +6,7 @@ import { CodexBackend } from './backends/codex.mjs';
 import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
 import { collectImageAttachments, understandImages } from './vision.mjs';
 import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
+import { reactToReceivedChildMessage } from './discord-reactions.mjs';
 import { buildParentContextPrompt, buildSlashStatusPrompt, canUseStatus, childProjectName, findChildByChannelName, formatSlashOverview, formatSlashStatus, isAuthorizedParent, parseParentMessage, renderParentNaturalText, statusCommand, statusDenialMessage, validateChildChannel } from './parent-context.mjs';
 
 const configFile=process.env.FAMILY_TUTOR_CONFIG;
@@ -255,6 +256,7 @@ client.on(Events.MessageCreate,message=>{
   const child=findChildByChannelName(config.children,message.channel?.name);
   if(child){
     try{validateChildChannel(child,message.channel);}catch(error){console.error('[family-tutor] child channel configuration error',error); message.reply(error.message).catch(()=>{}); return;}
+    reactToReceivedChildMessage(message,child.id);
     const handler=browserBridge?handleBrowserChildMessage:handleChildMessage;
     serialize(child.id,()=>handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
     return;
