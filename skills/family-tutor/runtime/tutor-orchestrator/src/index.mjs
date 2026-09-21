@@ -7,6 +7,7 @@ import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
 import { collectImageAttachments, understandImages } from './vision.mjs';
 import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
 import { reactToReceivedChildMessage } from './discord-reactions.mjs';
+import { handleBrowserChildMessage } from './browser-ingress.mjs';
 import { buildParentContextPrompt, buildSlashStatusPrompt, canUseStatus, childProjectName, findChildByChannelName, formatSlashOverview, formatSlashStatus, isAuthorizedParent, parseParentMessage, renderParentNaturalText, statusCommand, statusDenialMessage, validateChildChannel } from './parent-context.mjs';
 import { buildKidContext } from './runtime-context.mjs';
 
@@ -163,18 +164,6 @@ async function handleChildMessage(message,child){
 }
 
 
-async function handleBrowserChildMessage(message,child){
-  const incoming=message.content.trim();
-  const images=collectImageAttachments(message).map(a=>({
-    url:a.url,name:a.name||`attachment-${a.id}`,mimeType:a.contentType||'',size:Number(a.size||0),
-  }));
-  if(!incoming&&!images.length) return;
-  await browserBridge.enqueue({
-    childId:child.id,text:incoming,attachments:images,
-    origin:{channelId:message.channelId,messageId:message.id,threadId:message.channel?.isThread?.()?message.channelId:null},
-  });
-}
-
 async function resolveMentionedChild(command){
   if(!command?.channelMentionId) return null;
   const channel=await client.channels.fetch(command.channelMentionId);
@@ -277,7 +266,7 @@ client.on(Events.MessageCreate,message=>{
     try{validateChildChannel(child,message.channel);}catch(error){console.error('[family-tutor] child channel configuration error',error); message.reply(error.message).catch(()=>{}); return;}
     reactToReceivedChildMessage(message,child.id);
     const handler=browserBridge?handleBrowserChildMessage:handleChildMessage;
-    serialize(child.id,()=>handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
+    serialize(child.id,()=>browserBridge?handler(message,child,browserBridge):handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
     return;
   }
   if(config.discord.parentChannelId && message.channelId===config.discord.parentChannelId){
