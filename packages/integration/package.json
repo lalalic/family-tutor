@@ -2,8 +2,14 @@
   "name": "@family-tutor/integration-tests",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.mjs" },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
   "scripts": {
-    "check": "node --test test/*.test.mjs"
+    "check": "node --check src/index.mjs && node --check src/extension-relay.mjs && node --check src/server.mjs && node --test test/*.test.mjs",
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }

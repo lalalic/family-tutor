@@ -14,10 +14,15 @@ export function loadProductionConfig(env = process.env) {
   const storagePath = required(env[REQUIRED_STORAGE], REQUIRED_STORAGE);
   const maxBodyBytes = Number(env.FAMILY_TUTOR_MAX_BODY_BYTES || 262144);
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1024 || maxBodyBytes > 10 * 1024 * 1024) throw new Error('FAMILY_TUTOR_MAX_BODY_BYTES is invalid');
+  const host = env.HOST || env.FAMILY_TUTOR_HOST || '127.0.0.1';
+  const port = Number(env.PORT || env.FAMILY_TUTOR_PORT || 8080);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PORT is invalid');
   return Object.freeze({
     nodeEnv,
     storagePath,
     maxBodyBytes,
+    host,
+    port,
     auditSink: env.FAMILY_TUTOR_AUDIT_SINK || 'stdout',
     publicOrigin: env.FAMILY_TUTOR_PUBLIC_ORIGIN || null,
   });

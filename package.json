@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "check": "npm run check --prefix packages/core && npm run check --prefix packages/discord-adapter && npm run check --prefix packages/hosted-mcp-adapter && npm run check:product && npm run check --prefix packages/integration && npm run check --prefix packages/onboarding && npm run check --prefix packages/operations && npm run check --prefix skills/family-tutor/mcp-server && npm run check --prefix skills/family-tutor/runtime/tutor-orchestrator && npm run check:extension",
-    "check:product": "node --check packages/integration/src/index.mjs && node --test packages/integration/test/product.test.mjs",
-    "check:extension": "node --check skills/family-tutor/extension/background.js && node --check skills/family-tutor/extension/content.js && node --check skills/family-tutor/extension/popup.js && node --test skills/family-tutor/extension/test/*.test.mjs"
+    "check:product": "node --check packages/integration/src/index.mjs && node --check packages/integration/src/extension-relay.mjs && node --check packages/integration/src/server.mjs && node --test packages/integration/test/product.test.mjs",
+    "check:extension": "node --check skills/family-tutor/extension/background.js && node --check skills/family-tutor/extension/content.js && node --check skills/family-tutor/extension/popup.js && node --test skills/family-tutor/extension/test/*.test.mjs",
+    "start:product": "node packages/integration/src/server.mjs"
   }
 }

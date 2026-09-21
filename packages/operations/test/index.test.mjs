@@ -4,9 +4,10 @@ import { createReadinessChecks, createSafeLogger, loadProductionConfig } from '.
 
 test('loads bounded deployment configuration', () => {
   const config = loadProductionConfig({ NODE_ENV: 'production', FAMILY_TUTOR_STORAGE_PATH: '/srv/family-tutor/state.json' });
-  assert.deepEqual(config, { nodeEnv: 'production', storagePath: '/srv/family-tutor/state.json', maxBodyBytes: 262144, auditSink: 'stdout', publicOrigin: null });
+  assert.deepEqual(config, { nodeEnv: 'production', storagePath: '/srv/family-tutor/state.json', maxBodyBytes: 262144, host: '127.0.0.1', port: 8080, auditSink: 'stdout', publicOrigin: null });
   assert.throws(() => loadProductionConfig({ NODE_ENV: 'production' }), /STORAGE_PATH/);
   assert.throws(() => loadProductionConfig({ NODE_ENV: 'production', FAMILY_TUTOR_STORAGE_PATH: 'x', FAMILY_TUTOR_MAX_BODY_BYTES: '99' }), /MAX_BODY_BYTES/);
+  assert.throws(() => loadProductionConfig({ NODE_ENV: 'production', FAMILY_TUTOR_STORAGE_PATH: 'x', PORT: '99999' }), /PORT/);
 });
 
 test('redacts secrets, provider ids, and child content from logs', () => {

@@ -1,5 +1,6 @@
 const CHATGPT_HOSTS = new Set(['chatgpt.com', 'chat.openai.com']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const HOSTED_BRIDGE_HOSTS = new Set(['family-tutor.qili2.com']);
 
 export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:43117/ws';
 export const HEALTH_STATES = Object.freeze({
@@ -31,8 +32,10 @@ export function projectIdFromChatGptUrl(value) {
 
 export function normalizeBridgeUrl(value = DEFAULT_BRIDGE_URL) {
   const url = new URL(String(value || DEFAULT_BRIDGE_URL));
-  if (!['ws:', 'wss:'].includes(url.protocol) || !LOOPBACK_HOSTS.has(url.hostname)) {
-    throw new Error('bridge URL must be a loopback WebSocket URL');
+  const local = url.protocol === 'ws:' && LOOPBACK_HOSTS.has(url.hostname);
+  const hosted = url.protocol === 'wss:' && HOSTED_BRIDGE_HOSTS.has(url.hostname);
+  if ((!local && !hosted) || !['/ws', '/extension'].includes(url.pathname)) {
+    throw new Error('bridge URL must be local ws://.../ws or the hosted Family Tutor wss://.../extension endpoint');
   }
   return url.toString();
 }

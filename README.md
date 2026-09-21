@@ -72,6 +72,17 @@ backend probes alone are insufficient. See [`e2e.md`](e2e.md).
 The product-level synthetic gate can be run independently with
 `npm run check:product`; it is also included in `npm run check`.
 
+Start the integrated hosted process with:
+
+```bash
+npm run start:product
+```
+
+The deployer provides `FAMILY_TUTOR_PROVIDER_MODULE`; that trusted provider is
+the shared Discord bot boundary and supplies outbound `send()` plus optional
+inbound `start({onMessage})`. The same process serves `/mcp`, `/extension`,
+`/healthz`, and `/readyz`.
+
 ## Private local instance
 
 The local tutoring runtime is an operator/development path, not the hosted

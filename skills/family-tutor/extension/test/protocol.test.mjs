@@ -37,7 +37,8 @@ test('thread bindings follow project reassignment and discard stale URLs', () =>
 
 test('bridge, tab, and project URLs stay on allowed hosts', () => {
   assert.equal(normalizeBridgeUrl('ws://127.0.0.1:43117/ws'), 'ws://127.0.0.1:43117/ws');
-  assert.throws(() => normalizeBridgeUrl('wss://example.com/ws'), /loopback/);
+  assert.equal(normalizeBridgeUrl('wss://family-tutor.qili2.com/extension'), 'wss://family-tutor.qili2.com/extension');
+  assert.throws(() => normalizeBridgeUrl('wss://example.com/extension'), /hosted Family Tutor/);
   assert.equal(isChatGptUrl('https://chatgpt.com/c/123'), true);
   assert.equal(isChatGptUrl('https://example.com/chatgpt.com'), false);
   assert.equal(projectIdFromChatGptUrl('https://chatgpt.com/g/g-p-6aab2b72ef888191842f03b7a4bc70b6-neo-family-tutor-maggie/project'), 'g-p-6aab2b72ef888191842f03b7a4bc70b6');

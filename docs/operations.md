@@ -9,7 +9,8 @@ Required at deployment time:
 
 | Setting | Rule |
 | --- | --- |
-| `HOST` / `PORT` | Platform listener values; use a private bind behind the edge. |
+| `HOST` / `PORT` | Listener for `/mcp`, `/extension`, `/healthz`, and `/readyz`; use a private bind behind the edge. |
+| `FAMILY_TUTOR_PROVIDER_MODULE` | Trusted shared-Discord provider module. It must expose `send()` and may expose `start({onMessage})` and `close()`. |
 | provisioning store | Use a transactional database adapter for multi-process deployments. The JSON store is for one process and rehearsals. |
 | provider credentials | Inject from the platform secret manager at runtime. |
 | TLS/edge auth | Terminate TLS at the edge and forward only `Authorization: Bearer ...` to `/mcp`. |
@@ -23,7 +24,8 @@ The hosted server exposes data-free operational endpoints:
 - `GET /healthz` is liveness and returns 200 while the process can serve.
 - `GET /readyz` runs the deployment's readiness check and returns 503 when a
   dependency is unavailable.
-- `POST /mcp` is the authenticated application endpoint.
+- `POST /mcp` is the authenticated ChatGPT tool endpoint.
+- `GET/upgrade /extension` is the authenticated extension WebSocket endpoint. The extension sends its family session token after socket establishment; tokens must not be placed in URLs.
 
 ## State, migrations, and recovery
 

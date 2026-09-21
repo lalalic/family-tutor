@@ -62,5 +62,16 @@ export function createDiscordAdapter({ store, provider, audit = async () => {}, 
     if (matches.length !== 1) throw new DiscordAdapterError('NOT_FOUND', 'provider destination is not bound for this family');
     const { providerId: _providerId, ...logical } = matches[0]; return Object.freeze({ familyId: context.familyId, ...logical });
   }
-  return Object.freeze({ authenticate, send, receive });
+  function receiveTrusted({ providerChannelId }) {
+    const channelId = required(providerChannelId, 'providerChannelId');
+    const matches = [];
+    for (const family of Object.values(store.snapshot().families || {})) {
+      if (family.status !== 'active') continue;
+      if (family.parent?.providerId === channelId) matches.push({ familyId: family.familyId, destinationType: 'parent', destinationKey: family.parent.key, childId: null });
+      for (const child of family.children || []) if (child.destination?.providerId === channelId) matches.push({ familyId: family.familyId, destinationType: 'child', destinationKey: child.destination.key, childId: child.childId });
+    }
+    if (matches.length !== 1) throw new DiscordAdapterError('NOT_FOUND', 'provider destination is not uniquely bound');
+    return Object.freeze(matches[0]);
+  }
+  return Object.freeze({ authenticate, send, receive, receiveTrusted });
 }

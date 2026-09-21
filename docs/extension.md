@@ -26,8 +26,11 @@ confirm that the popup reports the bridge state and the same child binding.
 Families authenticate to ChatGPT themselves. The extension stores only the
 logical child-to-Project binding and the selected thread URL in Chrome local
 storage. It does not ask the family for a ChatGPT password, bridge token, or
-Discord channel ID. The bridge remains loopback-only and is implementation
-plumbing for the local Family Tutor runtime.
+Discord channel ID. For hosted customers the extension connects outbound to
+`wss://family-tutor.qili2.com/extension` and authenticates after connection with
+a scoped family session token stored in Chrome extension storage. The token is
+never placed in the WebSocket URL. The legacy loopback bridge remains supported
+for local dogfood only.
 
 The `family-tutor` tab group is the ownership boundary: turns are sent only to
 the grouped tab selected for that child. A page outside the group is never
@@ -44,8 +47,9 @@ when recovery is in progress or has failed. Errors sent back to the local
 bridge are sanitized too; support diagnostics must never include credentials,
 tokens, or full browser URLs.
 
-If the bridge is unavailable, start the Family Tutor runtime and wait for the
-popup to move from `recovering` to `connected`. If a single Project tab is
+If the hosted bridge is unavailable, verify the hosted endpoint and family
+session in the popup and wait for the state to move from `recovering` to
+`connected`. In local dogfood mode, verify the local Family Tutor runtime. If a single Project tab is
 stuck, reload that tab. If a binding is wrong, unassign it and assign the
 intended Project thread again. Do not copy tokens or full browser URLs into a
 support ticket.
@@ -60,3 +64,7 @@ support ticket.
 Bindings are kept by Chrome extension storage, but the extension ID must remain
 stable. Keep the manifest `key` unchanged for customer updates; changing it
 creates a new extension identity and can strand existing bindings.
+
+## Hosted connection
+
+Extension 2.3.0 adds hosted bridge configuration in the popup. Enter the hosted `wss://family-tutor.qili2.com/extension` endpoint and the family session token issued during onboarding. A hosted connection is not considered ready until the server authenticates the session and every expected child binding has reported `tab.bind`.

@@ -48,3 +48,7 @@ header to `/mcp`.
 
 The adapter does not persist transcripts. Learner memory and tutor thread state
 remain in the private family runtime.
+
+## Correlated Discord replies
+
+When the hosted product configures the extension relay, MCP discovery also exposes `reply_to_discord(correlationId, text, final?)`. The correlation is opaque and server-issued. The handler verifies the authenticated family (and child-scoped session when applicable) owns that correlation before replying to the trusted originating Discord channel. The tool never accepts a channel id, family id, or provider id.

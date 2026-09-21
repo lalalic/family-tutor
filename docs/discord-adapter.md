@@ -18,3 +18,7 @@ Raw Discord IDs are accepted only for trusted ingress via `receive()` and for
 the final provider call. `audit` receives metadata only, and `rateLimit` runs
 after authorization and before delivery. Provider failures become safe
 `DiscordAdapterError` values; audit failures do not break delivery.
+
+## Hosted ingress
+
+The commercial product uses `receiveTrusted({providerChannelId})` only inside the trusted shared-bot ingress. It scans active provisioning bindings and succeeds only when the provider channel maps to exactly one logical family/destination. The provider id is discarded before the turn enters the extension/ChatGPT path. This method is not model-facing and must never be exposed as an MCP argument.

@@ -1,4 +1,4 @@
-import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -12,7 +12,7 @@ let restoreTimer = null;
 let restoreFallbackTimer = null;
 
 async function settings() {
-  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth() });
+  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '' });
 }
 
 function defaultHealth() {
@@ -29,9 +29,11 @@ async function applyBootstrap() {
     const response = await fetch(BOOTSTRAP_URL, { cache: 'no-store' });
     if (!response.ok) return;
     const bootstrap = await response.json();
-    if (bootstrap?.bindings && typeof bootstrap.bindings === 'object') {
-      await chrome.storage.local.set({ bindings: bootstrap.bindings });
-    }
+    const update = {};
+    if (bootstrap?.bindings && typeof bootstrap.bindings === 'object') update.bindings = bootstrap.bindings;
+    if (bootstrap?.bridgeUrl) update.bridgeUrl = normalizeBridgeUrl(bootstrap.bridgeUrl);
+    if (typeof bootstrap?.bridgeToken === 'string') update.bridgeToken = bootstrap.bridgeToken;
+    if (Object.keys(update).length) await chrome.storage.local.set(update);
   } catch {
     // bootstrap.json is optional and intentionally private when used.
   }
@@ -341,9 +343,10 @@ function scheduleReconnect() {
 
 async function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
-  socket = new WebSocket(DEFAULT_BRIDGE_URL);
+  const current = await settings();
+  const bridgeUrl = normalizeBridgeUrl(current.bridgeUrl || DEFAULT_BRIDGE_URL);
+  socket = new WebSocket(bridgeUrl);
   socket.onopen = async () => {
-    await reportBindings();
     clearInterval(keepAliveTimer);
     keepAliveTimer = setInterval(() => send({ type: 'extension.ping' }), 20_000);
   };
@@ -351,8 +354,15 @@ async function connect() {
     let message;
     try {
       message = JSON.parse(data);
+      if (message.type === 'bridge.auth.required') {
+        const current = await settings();
+        if (!current.bridgeToken) throw new Error('Hosted Family Tutor connection requires a family session token.');
+        send({ type: 'bridge.auth', token: current.bridgeToken });
+        return;
+      }
       if (message.type === 'bridge.ready') {
         availableChildren = Array.isArray(message.children) ? message.children.map(String) : [];
+        await reportBindings();
         await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString() });
         return;
       }
@@ -379,7 +389,7 @@ async function connect() {
     scheduleReconnect();
   };
   socket.onerror = () => {
-    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The local Family Tutor bridge is unavailable.' }).catch(() => {});
+    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The Family Tutor bridge is unavailable.' }).catch(() => {});
     socket?.close();
   };
 }
@@ -424,10 +434,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.type === 'settings.get') {
-    settings().then(({ bindings, threadUrls, health }) => respond({
-      bindings: canonicalBindings(bindings), threadUrls, health,
+    settings().then(({ bindings, threadUrls, health, bridgeUrl, bridgeToken }) => respond({
+      bindings: canonicalBindings(bindings), threadUrls, health, bridgeUrl, tokenConfigured: Boolean(bridgeToken),
       version: chrome.runtime.getManifest().version, children: availableChildren,
     })).catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'connection.configure') {
+    (async () => {
+      const bridgeUrl = normalizeBridgeUrl(message.bridgeUrl || DEFAULT_BRIDGE_URL);
+      const bridgeToken = String(message.bridgeToken || '').trim();
+      if (bridgeUrl.startsWith('wss://') && !bridgeToken) throw new Error('Hosted Family Tutor requires a family session token.');
+      await chrome.storage.local.set({ bridgeUrl, bridgeToken });
+      if (socket) { try { socket.close(); } catch {} socket = null; }
+      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null });
+      await connect();
+      respond({ ok: true, bridgeUrl, tokenConfigured: Boolean(bridgeToken) });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 

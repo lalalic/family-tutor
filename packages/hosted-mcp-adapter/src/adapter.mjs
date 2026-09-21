@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 
-const DEFAULT_TOOLS = Object.freeze([
+export const DEFAULT_TOOLS = Object.freeze([
   {
     name: 'send_tutor_message',
     description: 'Send a message to a logical Family Tutor destination.',
@@ -12,6 +12,20 @@ const DEFAULT_TOOLS = Object.freeze([
       properties: {
         destination: { type: 'object', additionalProperties: false, required: ['type', 'key'], properties: { type: { enum: ['child', 'parent'] }, key: { type: 'string', minLength: 1 } } },
         text: { type: 'string', minLength: 1, maxLength: 12000 },
+      },
+    },
+  },
+  {
+    name: 'reply_to_discord',
+    description: 'Reply to the exact Discord turn associated with an active Family Tutor correlation.',
+    entitlement: 'core',
+    scopes: ['tutor'],
+    inputSchema: {
+      type: 'object', additionalProperties: false, required: ['correlationId', 'text'],
+      properties: {
+        correlationId: { type: 'string', minLength: 1, maxLength: 160 },
+        text: { type: 'string', minLength: 1, maxLength: 12000 },
+        final: { type: 'boolean' },
       },
     },
   },
@@ -52,6 +66,12 @@ function validateArguments(tool, args) {
   for (const key of schema.required || []) if (args[key] === undefined) throw new Error(`${key} is required`);
   if (typeof args.text !== 'undefined' && (typeof args.text !== 'string' || !args.text.trim() || args.text.length > 12000)) throw new Error('text must be a non-empty string of at most 12000 characters');
   if (typeof args.topic !== 'undefined' && (typeof args.topic !== 'string' || !args.topic.trim() || args.topic.length > 500)) throw new Error('topic must be a non-empty string of at most 500 characters');
+  if (tool.name === 'reply_to_discord') {
+    if (typeof args.correlationId !== 'string' || !args.correlationId.trim() || args.correlationId.length > 160) throw new Error('correlationId is invalid');
+    if (typeof args.text !== 'string' || !args.text.trim() || args.text.length > 12000) throw new Error('text must be a non-empty string of at most 12000 characters');
+    if (args.final !== undefined && typeof args.final !== 'boolean') throw new Error('final must be a boolean');
+    return;
+  }
   const destination = args.destination;
   if (!destination || typeof destination !== 'object' || Array.isArray(destination)) throw new Error('destination must be an object');
   if (Object.keys(destination).some(key => !['type', 'key'].includes(key))) throw new Error('destination must contain only type and key');
@@ -83,7 +103,7 @@ const SAFE_ERRORS = new Set([
   'tool arguments must be an object', 'destination must be an object', 'destination must contain only type and key',
   'destination type and key are invalid', 'study plans require a child destination',
   'text must be a non-empty string of at most 12000 characters',
-  'topic must be a non-empty string of at most 500 characters',
+  'topic must be a non-empty string of at most 500 characters', 'correlationId is invalid', 'final must be a boolean',
   'family is not active', 'destination is not bound for this family',
   'session is not authorized for this family', 'session is not authorized for this child',
 ]);
@@ -118,13 +138,16 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
       const rateDecision = await rateLimiter({ familyId: session.familyId, tool: name, requestId });
       if (rateDecision === false || rateDecision?.allowed === false) throw new Error('rate limit exceeded');
       const destination = args?.destination;
-      if (!destination || destination.type === undefined || destination.key === undefined) throw new Error('destination type and key are required');
-      if (session.childId !== null && (destination.type !== 'child' || destination.key !== session.childId)) throw new Error('session is not authorized for this child');
-      const route = store.resolveDestination({ sessionToken: token, familyId: session.familyId, destinationType: destination.type, destinationKey: destination.key });
+      let route = null;
+      if (destination) {
+        if (destination.type === undefined || destination.key === undefined) throw new Error('destination type and key are required');
+        if (session.childId !== null && (destination.type !== 'child' || destination.key !== session.childId)) throw new Error('session is not authorized for this child');
+        route = store.resolveDestination({ sessionToken: token, familyId: session.familyId, destinationType: destination.type, destinationKey: destination.key });
+      }
       const handler = handlers[name];
       if (typeof handler !== 'function') throw new Error('tool is not configured');
-      const value = await handler({ familyId: session.familyId, sessionId: session.sessionId, destination: route, arguments: args, requestId });
-      writeAudit({ ...base, familyId: session.familyId, destinationType: route.destinationType, destinationKey: route.destinationKey, outcome: 'succeeded' });
+      const value = await handler({ familyId: session.familyId, sessionId: session.sessionId, childId: session.childId, destination: route, arguments: args, requestId });
+      writeAudit({ ...base, familyId: session.familyId, destinationType: route?.destinationType || null, destinationKey: route?.destinationKey || null, outcome: 'succeeded' });
       return result(value);
     } catch (error) {
       const message = safeMessage(error);
@@ -144,7 +167,7 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
         const token = bearer(headers);
         const session = authenticate(token);
         if (!session) return { jsonrpc: '2.0', id, error: { code: -32001, message: 'authentication required' } };
-        const visible = [...registry.values()].filter(tool => allowed(session.familyId, tool) && tool.scopes.every(scope => session.scopes.includes(scope))).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+        const visible = [...registry.values()].filter(tool => allowed(session.familyId, tool) && tool.scopes.every(scope => session.scopes.includes(scope)) && (tool.name !== 'reply_to_discord' || typeof handlers[tool.name] === 'function')).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
         return { jsonrpc: '2.0', id, result: { tools: visible } };
       }
       if (request.method === 'tools/call') return { jsonrpc: '2.0', id, result: await callTool(request.params?.name, request.params?.arguments || {}, headers, String(request.id ?? cryptoRandomId())) };
