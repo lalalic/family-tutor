@@ -77,13 +77,14 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
       chatgpt: state.chatgpt.connected && state.chatgpt.mcpConfigured,
       discord: state.discord.invited,
       destinations: state.destinations.parent && children.length > 0 && children.every(childId => state.destinations.children.includes(childId)),
-      // A logical Project binding is the setup milestone. Extension health is
-      // retained as a recoverable diagnostic and is checked by the live probe.
-      projects: children.length > 0 && missingProjects.length === 0,
+      // Do not activate traffic until the extension confirms every binding.
+      projects: children.length > 0 && missingProjects.length === 0 && state.projects.ready === true,
       acceptance: state.acceptance?.ok === true,
     };
     const current = state.destinations.detail
       ? 'destinations'
+      : state.projects.detail
+        ? 'projects'
       : STEP_ORDER.find(step => !checks[step]) || null;
     return clone({ familyId: normalizedFamilyId, steps: STEP_ORDER.map(step => ({ id: step, label: STEP_LABELS[step], complete: checks[step] })), current, missingProjects, state: { ...state, destinations: { ...state.destinations, children: [...state.destinations.children] } } });
   }
@@ -114,17 +115,24 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
 
   async function destinations({ parent, children = [] } = {}) {
     try {
+      if (!Array.isArray(children)) throw new Error('children must be an array');
       if (parent === undefined && children.length === 0) throw new Error('choose a parent channel and at least one child channel');
+      const knownChildren = new Set(childIds());
+      const requestedChildren = children.map(child => {
+        const childId = text(child?.childId, 'childId');
+        if (!knownChildren.has(childId)) throw new Error(`child is not provisioned: ${childId}`);
+        return { childId, destination: logicalDestination(child.destination, `child ${childId} destination`) };
+      });
+      if (new Set(requestedChildren.map(child => child.childId)).size !== requestedChildren.length) throw new Error('a child may only be bound once per step');
+      const parentDestination = parent === undefined ? undefined : logicalDestination(parent, 'parent destination');
       if (parent !== undefined) {
         if (!bindParent) throw new Error('parent binding service is unavailable');
-        await bindParent({ familyId: normalizedFamilyId, destination: logicalDestination(parent, 'parent destination') });
+        await bindParent({ familyId: normalizedFamilyId, destination: parentDestination });
         state.destinations.parent = true;
       }
-      for (const child of children) {
-        const childId = text(child?.childId, 'childId');
-        if (!childIds().includes(childId)) throw new Error(`child is not provisioned: ${childId}`);
+      for (const { childId, destination } of requestedChildren) {
         if (!bindChild) throw new Error('child binding service is unavailable');
-        await bindChild({ familyId: normalizedFamilyId, childId, destination: logicalDestination(child.destination, 'child destination') });
+        await bindChild({ familyId: normalizedFamilyId, childId, destination });
         if (!state.destinations.children.includes(childId)) state.destinations.children.push(childId);
       }
       delete state.destinations.detail;
@@ -134,11 +142,17 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
 
   async function projects(bindings = []) {
     try {
-      for (const binding of bindings) {
+      if (!Array.isArray(bindings)) throw new Error('bindings must be an array');
+      const knownChildren = new Set(childIds());
+      const requested = bindings.map(binding => {
         const childId = text(binding?.childId, 'childId');
         const projectId = text(binding?.projectId, 'projectId');
         if (!/^g-p-[A-Za-z0-9_-]+$/.test(projectId)) throw new Error('projectId must be a ChatGPT Project id');
-        if (!childIds().includes(childId)) throw new Error(`child is not provisioned: ${childId}`);
+        if (!knownChildren.has(childId)) throw new Error(`child is not provisioned: ${childId}`);
+        return { childId, projectId };
+      });
+      if (new Set(requested.map(binding => binding.childId)).size !== requested.length) throw new Error('a child may only be bound once per step');
+      for (const { childId, projectId } of requested) {
         if (!bindProject) throw new Error('Project binding service is unavailable');
         await bindProject({ familyId: normalizedFamilyId, childId, projectId });
         state.projects.bindings[childId] = { bound: true };
@@ -156,7 +170,9 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
 
   async function acceptance() {
     const current = status();
-    if (current.current !== 'acceptance') return clone({ ok: false, checks: current.steps.filter(step => !step.complete).map(step => step.id), detail: 'complete the earlier setup steps before running acceptance' });
+    const earlier = current.steps.filter(step => step.id !== 'acceptance' && !step.complete).map(step => step.id);
+    if (earlier.length) return clone({ ok: false, checks: earlier, detail: 'complete the earlier setup steps before running acceptance' });
+    if (state.projects.detail) return clone({ ok: false, checks: ['projects'], detail: 'resolve the extension Project check before running acceptance' });
     try {
       const result = runProbe ? await runProbe({ familyId: normalizedFamilyId, children: childIds() }) : { ok: true };
       state.acceptance = { ok: result?.ok === true, checkedAt: new Date().toISOString(), detail: result?.ok === true ? null : safeDetail(result?.detail || 'acceptance probe did not pass'), checks: result?.checks || {} };
