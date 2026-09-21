@@ -147,22 +147,54 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('hosted websocket requires family token before exposing bridge bindings',async()=>{
+test('extension OAuth/PKCE issues a public-client session accepted by hosted websocket',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-hosted-ws-'));
   const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{}}).start();
   let socket;
   try{
-    socket=new WebSocket(bridge.websocketEndpoint(),{
-      origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm',
-      headers:{Host:'family-tutor.qili2.com'},
-    });
+    const verifier=crypto.randomBytes(32).toString('base64url');
+    const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
+    const redirectUri='https://cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org/family-tutor';
+    const authorize=new URL(`${bridge.endpoint()}/oauth/authorize`);
+    authorize.searchParams.set('response_type','code');
+    authorize.searchParams.set('client_id','family-tutor-extension');
+    authorize.searchParams.set('redirect_uri',redirectUri);
+    authorize.searchParams.set('scope','extension');
+    authorize.searchParams.set('resource','https://family-tutor.qili2.com/ws');
+    authorize.searchParams.set('state','ext-state');
+    authorize.searchParams.set('code_challenge',challenge);
+    authorize.searchParams.set('code_challenge_method','S256');
+    const authorization=await fetch(authorize,{redirect:'manual'});
+    assert.equal(authorization.status,302);
+    const callback=new URL(authorization.headers.get('location'));
+    assert.equal(callback.origin,'https://cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org');
+    assert.equal(callback.searchParams.get('state'),'ext-state');
+    const code=callback.searchParams.get('code');
+    assert.ok(code);
+
+    const form=new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:'family-tutor-extension',code_verifier:verifier,resource:'https://family-tutor.qili2.com/ws'});
+    const tokenResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
+    assert.equal(tokenResponse.status,200);
+    const token=await tokenResponse.json();
+    assert.equal(token.scope,'extension');
+    assert.ok(token.access_token.startsWith('ft1.'));
+    assert.ok(token.refresh_token.startsWith('ftr1.'));
+
+    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:token.refresh_token,client_id:'family-tutor-extension',resource:'https://family-tutor.qili2.com/ws'});
+    const refreshResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
+    assert.equal(refreshResponse.status,200);
+    const refreshed=await refreshResponse.json();
+    assert.equal(refreshed.scope,'extension');
+    assert.ok(refreshed.access_token.startsWith('ft1.'));
+
+    socket=new WebSocket(bridge.websocketEndpoint(),{origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm',headers:{Host:'family-tutor.qili2.com'}});
     const first=await new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>reject(new Error('hosted auth prompt timeout')),1500);
       socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});
       socket.once('error',reject);
     });
     assert.equal(first.type,'bridge.auth.required');
-    socket.send(JSON.stringify({type:'bridge.auth',token:'hosted-family-session-token-1234567890'}));
+    socket.send(JSON.stringify({type:'bridge.auth',token:refreshed.access_token}));
     const ready=await new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>reject(new Error('hosted ready timeout')),1500);
       socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});

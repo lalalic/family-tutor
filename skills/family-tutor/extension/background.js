@@ -12,11 +12,98 @@ let restoreTimer = null;
 let restoreFallbackTimer = null;
 
 async function settings() {
-  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '' });
+  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '', bridgeRefreshToken: '' });
 }
 
 function defaultHealth() {
   return { state: HEALTH_STATES.DISCONNECTED, lastError: null, lastConnectedAt: null, recoveryCount: 0 };
+}
+
+const OAUTH_ORIGIN = 'https://family-tutor.qili2.com';
+const OAUTH_CLIENT_ID = 'family-tutor-extension';
+const OAUTH_RESOURCE = `${OAUTH_ORIGIN}/ws`;
+
+function base64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function sha256Base64Url(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return base64Url(new Uint8Array(digest));
+}
+
+function randomBase64Url(size = 32) {
+  return base64Url(crypto.getRandomValues(new Uint8Array(size)));
+}
+
+async function authorizeExtensionSession() {
+  const redirectUri = chrome.identity.getRedirectURL('family-tutor');
+  const verifier = randomBase64Url(32);
+  const state = randomBase64Url(24);
+  const challenge = await sha256Base64Url(verifier);
+  const authorize = new URL(`${OAUTH_ORIGIN}/oauth/authorize`);
+  authorize.searchParams.set('response_type', 'code');
+  authorize.searchParams.set('client_id', OAUTH_CLIENT_ID);
+  authorize.searchParams.set('redirect_uri', redirectUri);
+  authorize.searchParams.set('scope', 'extension');
+  authorize.searchParams.set('resource', OAUTH_RESOURCE);
+  authorize.searchParams.set('state', state);
+  authorize.searchParams.set('code_challenge', challenge);
+  authorize.searchParams.set('code_challenge_method', 'S256');
+
+  const callbackUrl = await chrome.identity.launchWebAuthFlow({ url: authorize.toString(), interactive: true });
+  if (!callbackUrl) throw new Error('Family Tutor authorization was cancelled.');
+  const callback = new URL(callbackUrl);
+  if (callback.searchParams.get('state') !== state) throw new Error('Family Tutor authorization state mismatch.');
+  const code = callback.searchParams.get('code');
+  if (!code) throw new Error(callback.searchParams.get('error_description') || callback.searchParams.get('error') || 'Family Tutor authorization failed.');
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: OAUTH_CLIENT_ID,
+    code_verifier: verifier,
+    resource: OAUTH_RESOURCE,
+  });
+  const response = await fetch(`${OAUTH_ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+    cache: 'no-store',
+  });
+  const token = await response.json().catch(() => ({}));
+  if (!response.ok || !token.access_token || !token.refresh_token) throw new Error(token.error_description || token.error || 'Family Tutor token exchange failed.');
+  return { accessToken: token.access_token, refreshToken: token.refresh_token };
+}
+
+function tokenExpiresSoon(token, skewSeconds = 300) {
+  try {
+    const payload = JSON.parse(atob(String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return Number(payload.exp || 0) <= Math.floor(Date.now() / 1000) + skewSeconds;
+  } catch {
+    return true;
+  }
+}
+
+async function refreshExtensionSession(refreshToken) {
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: OAUTH_CLIENT_ID,
+    resource: OAUTH_RESOURCE,
+  });
+  const response = await fetch(`${OAUTH_ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+    cache: 'no-store',
+  });
+  const token = await response.json().catch(() => ({}));
+  if (!response.ok || !token.access_token) throw new Error(token.error_description || token.error || 'Family Tutor session refresh failed.');
+  return token.access_token;
 }
 
 async function updateHealth(patch) {
@@ -343,8 +430,13 @@ function scheduleReconnect() {
 
 async function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
-  const current = await settings();
+  let current = await settings();
   const bridgeUrl = normalizeBridgeUrl(current.bridgeUrl || DEFAULT_BRIDGE_URL);
+  if (bridgeUrl.startsWith('wss://') && current.bridgeRefreshToken && (!current.bridgeToken || tokenExpiresSoon(current.bridgeToken))) {
+    const bridgeToken = await refreshExtensionSession(current.bridgeRefreshToken);
+    await chrome.storage.local.set({ bridgeToken });
+    current = { ...current, bridgeToken };
+  }
   socket = new WebSocket(bridgeUrl);
   socket.onopen = async () => {
     clearInterval(keepAliveTimer);
@@ -441,12 +533,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+  if (message?.type === 'connection.oauth') {
+    (async () => {
+      const session = await authorizeExtensionSession();
+      await chrome.storage.local.set({ bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken });
+      if (socket) { try { socket.close(); } catch {} socket = null; }
+      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null });
+      await connect();
+      respond({ ok: true, bridgeUrl: DEFAULT_BRIDGE_URL, tokenConfigured: true });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
   if (message?.type === 'connection.configure') {
     (async () => {
       const bridgeUrl = normalizeBridgeUrl(message.bridgeUrl || DEFAULT_BRIDGE_URL);
       const bridgeToken = String(message.bridgeToken || '').trim();
       if (bridgeUrl.startsWith('wss://') && !bridgeToken) throw new Error('Hosted Family Tutor requires a family session token.');
-      await chrome.storage.local.set({ bridgeUrl, bridgeToken });
+      await chrome.storage.local.set({ bridgeUrl, bridgeToken, bridgeRefreshToken: '' });
       if (socket) { try { socket.close(); } catch {} socket = null; }
       await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null });
       await connect();

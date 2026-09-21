@@ -71,6 +71,8 @@ export class BrowserBridge {
     this.lastExtensionError=null;
     this.publicOrigin=String(process.env.FAMILY_TUTOR_PUBLIC_ORIGIN||'https://family-tutor.qili2.com').replace(/\/$/,'');
     this.oauthClientId=process.env.FAMILY_TUTOR_OAUTH_CLIENT_ID||'family-tutor-chatgpt';
+    this.extensionOAuthClientId='family-tutor-extension';
+    this.extensionRedirectHost='cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org';
     this.oauthClientSecretFile=path.join(this.root,'oauth-client-secret');
     this.oauthClientSecret=null;
     this.oauthCodes=new Map();
@@ -129,27 +131,49 @@ export class BrowserBridge {
   }
 
   #oauthResource(){return `${this.publicOrigin}/mcp`;}
+  #extensionResource(){return `${this.publicOrigin}/ws`;}
   #oauthMetadataUrl(){return `${this.publicOrigin}/.well-known/oauth-protected-resource`;}
   #oauthChallenge(error='invalid_token',description='Authentication required'){
     return `Bearer resource_metadata=\"${this.#oauthMetadataUrl()}\", scope=\"tutor\", error=\"${error}\", error_description=\"${description.replace(/[\"\r\n]/g,' ')}\"`;
   }
-  #validRedirect(uri){
-    try{const url=new URL(uri);return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');}
-    catch{return false;}
+  #validRedirect(uri,clientId=this.oauthClientId){
+    try{
+      const url=new URL(uri);
+      if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');
+      if(clientId===this.extensionOAuthClientId) return url.protocol==='https:'&&url.hostname===this.extensionRedirectHost&&url.pathname.startsWith('/family-tutor');
+      return false;
+    }catch{return false;}
   }
   #signAccessToken({scope='tutor',resource=this.#oauthResource(),clientId=this.oauthClientId,expiresIn=3600}={}){
     const payload=b64url(JSON.stringify({iss:this.publicOrigin,aud:resource,client_id:clientId,scope,exp:Math.floor(Date.now()/1000)+expiresIn}));
     const signature=crypto.createHmac('sha256',this.token).update(`ft1.${payload}`).digest('base64url');
     return `ft1.${payload}.${signature}`;
   }
-  #verifyAccessToken(token){
+  #verifyScopedAccessToken(token,{resource,clientId,scope}){
     const parts=String(token||'').split('.');
     if(parts.length!==3||parts[0]!=='ft1') return false;
     const expected=crypto.createHmac('sha256',this.token).update(`ft1.${parts[1]}`).digest('base64url');
     if(!timingSafeEqualText(parts[2],expected)) return false;
     try{
       const payload=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
-      return payload.iss===this.publicOrigin&&payload.aud===this.#oauthResource()&&payload.client_id===this.oauthClientId&&String(payload.scope||'').split(/\s+/).includes('tutor')&&Number(payload.exp)>Math.floor(Date.now()/1000);
+      return payload.iss===this.publicOrigin&&payload.aud===resource&&payload.client_id===clientId&&String(payload.scope||'').split(/\s+/).includes(scope)&&Number(payload.exp)>Math.floor(Date.now()/1000);
+    }catch{return false;}
+  }
+  #verifyAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'});}
+  #verifyExtensionAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'});}
+  #signExtensionRefreshToken(expiresIn=180*24*60*60){
+    const payload=b64url(JSON.stringify({iss:this.publicOrigin,client_id:this.extensionOAuthClientId,scope:'extension_refresh',exp:Math.floor(Date.now()/1000)+expiresIn}));
+    const signature=crypto.createHmac('sha256',this.token).update(`ftr1.${payload}`).digest('base64url');
+    return `ftr1.${payload}.${signature}`;
+  }
+  #verifyExtensionRefreshToken(token){
+    const parts=String(token||'').split('.');
+    if(parts.length!==3||parts[0]!=='ftr1') return false;
+    const expected=crypto.createHmac('sha256',this.token).update(`ftr1.${parts[1]}`).digest('base64url');
+    if(!timingSafeEqualText(parts[2],expected)) return false;
+    try{
+      const payload=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
+      return payload.iss===this.publicOrigin&&payload.client_id===this.extensionOAuthClientId&&payload.scope==='extension_refresh'&&Number(payload.exp)>Math.floor(Date.now()/1000);
     }catch{return false;}
   }
   #mcpAuthorized(req){
@@ -166,21 +190,29 @@ export class BrowserBridge {
     }
     return {id:form.get('client_id')||'',secret:form.get('client_secret')||''};
   }
-  #oauthClientValid(id,secret){return id===this.oauthClientId&&timingSafeEqualText(secret,this.oauthClientSecret);}
+  #oauthClientValid(id,secret){
+    if(id===this.oauthClientId) return timingSafeEqualText(secret,this.oauthClientSecret);
+    if(id===this.extensionOAuthClientId) return !secret;
+    return false;
+  }
   #oauthAuthorize(url,res){
     const responseType=url.searchParams.get('response_type');
     const clientId=url.searchParams.get('client_id');
     const redirectUri=url.searchParams.get('redirect_uri');
     const state=url.searchParams.get('state')||'';
-    const resource=url.searchParams.get('resource')||this.#oauthResource();
-    const scope=url.searchParams.get('scope')||'tutor';
+    const isChatGpt=clientId===this.oauthClientId;
+    const isExtension=clientId===this.extensionOAuthClientId;
+    const expectedResource=isExtension?this.#extensionResource():this.#oauthResource();
+    const expectedScope=isExtension?'extension':'tutor';
+    const resource=url.searchParams.get('resource')||expectedResource;
+    const scope=url.searchParams.get('scope')||expectedScope;
     const challenge=url.searchParams.get('code_challenge');
     const challengeMethod=url.searchParams.get('code_challenge_method');
     const invalid = responseType!=='code' ? 'response_type'
-      : clientId!==this.oauthClientId ? 'client_id'
-      : !this.#validRedirect(redirectUri) ? 'redirect_uri'
-      : resource!==this.#oauthResource() ? 'resource'
-      : !scope.split(/\s+/).includes('tutor') ? 'scope'
+      : (!isChatGpt&&!isExtension) ? 'client_id'
+      : !this.#validRedirect(redirectUri,clientId) ? 'redirect_uri'
+      : resource!==expectedResource ? 'resource'
+      : !scope.split(/\s+/).includes(expectedScope) ? 'scope'
       : challengeMethod!=='S256'||!challenge ? 'pkce'
       : null;
     if(invalid) return json(res,400,{error:'invalid_request',error_description:`Invalid OAuth ${invalid}.`});
@@ -193,14 +225,21 @@ export class BrowserBridge {
     const form=await readForm(req);
     const credentials=this.#oauthClientCredentials(req,form);
     if(!this.#oauthClientValid(credentials.id,credentials.secret)) return json(res,401,{error:'invalid_client'});
-    if(form.get('grant_type')!=='authorization_code') return json(res,400,{error:'unsupported_grant_type'});
+    const grantType=form.get('grant_type');
+    if(grantType==='refresh_token'){
+      if(credentials.id!==this.extensionOAuthClientId||!this.#verifyExtensionRefreshToken(form.get('refresh_token'))) return json(res,400,{error:'invalid_grant'});
+      return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId}),token_type:'Bearer',expires_in:3600,scope:'extension'});
+    }
+    if(grantType!=='authorization_code') return json(res,400,{error:'unsupported_grant_type'});
     const code=form.get('code')||''; const record=this.oauthCodes.get(code); this.oauthCodes.delete(code);
     if(!record||record.expiresAt<Date.now()||record.clientId!==credentials.id||record.redirectUri!==form.get('redirect_uri')) return json(res,400,{error:'invalid_grant'});
     const verifier=form.get('code_verifier')||'';
     const derived=crypto.createHash('sha256').update(verifier).digest('base64url');
     if(!verifier||!timingSafeEqualText(derived,record.challenge)) return json(res,400,{error:'invalid_grant'});
     const resource=form.get('resource')||record.resource; if(resource!==record.resource) return json(res,400,{error:'invalid_target'});
-    return json(res,200,{access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId}),token_type:'Bearer',expires_in:3600,scope:record.scope});
+    const response={access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId}),token_type:'Bearer',expires_in:3600,scope:record.scope};
+    if(record.clientId===this.extensionOAuthClientId) response.refresh_token=this.#signExtensionRefreshToken();
+    return json(res,200,response);
   }
 
   endpoint(){return `http://${this.host}:${this.port}`;}
@@ -357,7 +396,7 @@ export class BrowserBridge {
       let message;
       try{ message=JSON.parse(raw.toString()); }catch{ return; }
       if(!authenticated){
-        if(message?.type==='bridge.auth'&&timingSafeEqualText(message.token,this.token)){
+        if(message?.type==='bridge.auth'&&(this.#verifyExtensionAccessToken(message.token)||timingSafeEqualText(message.token,this.token))){
           authenticated=true;
           socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
           return;
@@ -417,7 +456,7 @@ export class BrowserBridge {
   async #handle(req,res){
     const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);
     if(req.method==='GET'&&url.pathname==='/.well-known/oauth-protected-resource') return json(res,200,{resource:this.#oauthResource(),authorization_servers:[this.publicOrigin],scopes_supported:['tutor'],resource_documentation:`${this.publicOrigin}/`});
-    if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic'],scopes_supported:['tutor']});
+    if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic','none'],scopes_supported:['tutor','extension']});
     if(req.method==='GET'&&url.pathname==='/oauth/authorize') return this.#oauthAuthorize(url,res);
     if(req.method==='POST'&&url.pathname==='/oauth/token') return this.#oauthToken(req,res);
     if(req.method==='POST'&&url.pathname==='/mcp/reply'){

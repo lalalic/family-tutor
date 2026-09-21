@@ -47,8 +47,7 @@ when recovery is in progress or has failed. Errors sent back to the local
 bridge are sanitized too; support diagnostics must never include credentials,
 tokens, or full browser URLs.
 
-If the hosted bridge is unavailable, verify the hosted endpoint and family
-session in the popup and wait for the state to move from `recovering` to
+If the hosted bridge is unavailable, verify the hosted endpoint and reconnect Family Tutor in the popup if the OAuth session was revoked and wait for the state to move from `recovering` to
 `connected`. In local dogfood mode, verify the local Family Tutor runtime. If a single Project tab is
 stuck, reload that tab. If a binding is wrong, unassign it and assign the
 intended Project thread again. Do not copy tokens or full browser URLs into a
@@ -67,4 +66,4 @@ creates a new extension identity and can strand existing bindings.
 
 ## Hosted connection
 
-Extension 2.3.1 uses the hosted bridge by default in the popup. Enter the hosted `wss://family-tutor.qili2.com/ws` endpoint and the family session token issued during onboarding. A hosted connection is not considered ready until the server authenticates the session and every expected child binding has reported `tab.bind`.
+Extension 2.4.0 uses the hosted bridge by default and obtains its extension session through OAuth/PKCE in the popup. Click **Connect Family Tutor**. The extension opens the Family Tutor OAuth/PKCE flow using Chrome Identity, exchanges the one-time authorization code for an extension-scoped session token, stores the extension access/refresh session in extension-local storage, silently refreshes the short-lived access token when needed, and then connects to `wss://family-tutor.qili2.com/ws`. Users do not copy or manage a family token. A hosted connection is not considered ready until the server authenticates the extension session and every expected child binding has reported `tab.bind`.

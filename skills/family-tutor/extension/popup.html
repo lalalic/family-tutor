@@ -12,16 +12,16 @@
   #status { margin-top: 10px; white-space: pre-wrap; }
   #health { margin-top: 12px; padding: 8px; background: #f7f7f7; border-radius: 6px; white-space: pre-wrap; }
   #connection { display: grid; gap: 6px; margin-top: 12px; }
-  #connection input, #connection button { box-sizing: border-box; width: 100%; padding: 7px; }
+  #connection button { box-sizing: border-box; width: 100%; padding: 9px; }
+  #endpoint { color: #666; font-size: 12px; overflow-wrap: anywhere; }
 </style>
 <h3>Current ChatGPT Project Thread</h3>
 <div id="project">Detecting…</div>
 <div id="children"></div>
 <div id="health">Checking Family Tutor…</div>
 <div id="connection">
-  <input id="bridge-url" aria-label="Family Tutor bridge URL" placeholder="wss://family-tutor.qili2.com/ws">
-  <input id="bridge-token" aria-label="Family session token" type="password" placeholder="Family session token">
-  <button id="save-connection">Connect hosted Family Tutor</button>
+  <div id="endpoint">wss://family-tutor.qili2.com/ws</div>
+  <button id="connect-family">Connect Family Tutor</button>
 </div>
 <div id="status"></div>
 <script type="module" src="popup.js"></script>

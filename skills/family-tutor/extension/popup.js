@@ -4,15 +4,12 @@ const project = document.querySelector('#project');
 const children = document.querySelector('#children');
 const status = document.querySelector('#status');
 const health = document.querySelector('#health');
-const bridgeUrl = document.querySelector('#bridge-url');
-const bridgeToken = document.querySelector('#bridge-token');
-const saveConnection = document.querySelector('#save-connection');
+const connectFamily = document.querySelector('#connect-family');
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const projectId = projectIdFromChatGptUrl(tab?.url);
 const current = await chrome.runtime.sendMessage({ type: 'settings.get' });
-bridgeUrl.value = current.bridgeUrl || '';
-bridgeToken.placeholder = current.tokenConfigured ? 'Family session token configured' : 'Family session token';
+connectFamily.textContent = current.tokenConfigured ? 'Reconnect Family Tutor' : 'Connect Family Tutor';
 project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${projectId}` : 'Open a ChatGPT Project first.';
 
 function renderHealth(current) {
@@ -66,15 +63,11 @@ render(current.bindings || {});
 renderHealth(current);
 
 
-saveConnection.addEventListener('click', async () => {
-  const result = await chrome.runtime.sendMessage({
-    type: 'connection.configure',
-    bridgeUrl: bridgeUrl.value.trim(),
-    bridgeToken: bridgeToken.value.trim(),
-  });
-  status.textContent = result.error || 'Family Tutor connection updated.';
-  if (!result.error) {
-    bridgeToken.value = '';
-    bridgeToken.placeholder = result.tokenConfigured ? 'Family session token configured' : 'Family session token';
-  }
+connectFamily.addEventListener('click', async () => {
+  connectFamily.disabled = true;
+  status.textContent = 'Connecting Family Tutor…';
+  const result = await chrome.runtime.sendMessage({ type: 'connection.oauth' });
+  status.textContent = result.error || 'Family Tutor connected.';
+  if (!result.error) connectFamily.textContent = 'Reconnect Family Tutor';
+  connectFamily.disabled = false;
 });
