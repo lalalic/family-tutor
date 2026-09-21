@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Family Tutor</title>
+<style>
+  body { font: 13px system-ui; width: 320px; margin: 14px; }
+  h3 { margin: 0 0 8px; }
+  #project { padding: 8px; background: #f3f3f3; border-radius: 6px; overflow-wrap: anywhere; }
+  #children { display: grid; gap: 8px; margin-top: 12px; }
+  .child { display: flex; gap: 8px; align-items: center; }
+  .child button { flex: 1; padding: 8px; text-align: left; }
+  .child .clear { flex: 0 0 auto; }
+  #status { margin-top: 10px; white-space: pre-wrap; }
+</style>
+<h3>Current ChatGPT Project Thread</h3>
+<div id="project">Detecting…</div>
+<div id="children"></div>
+<div id="status"></div>
+<script type="module" src="popup.js"></script>

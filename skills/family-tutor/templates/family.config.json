@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "serviceName": "family-tutor-orchestrator",
+  "codex": {
+    "backend": "codex",
+    "maxRuntimeSeconds": 600
+  },
+  "discord": {
+    "parentChannelId": ""
+  },
+  "children": [
+    {
+      "id": "kid1",
+      "name": "Kid 1",
+      "grade": "",
+      "discordChannelId": "",
+      "gender": "",
+      "school": "",
+      "location": ""
+    },
+    {
+      "id": "kid2",
+      "name": "Kid 2",
+      "grade": "",
+      "discordChannelId": "",
+      "gender": "",
+      "school": "",
+      "location": ""
+    }
+  ],
+  "parents": [
+    {
+      "id": "parent1",
+      "name": "Parent 1",
+      "role": "parent"
+    }
+  ]
+}

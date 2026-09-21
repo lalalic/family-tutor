@@ -1,0 +1,52 @@
+import { projectIdFromChatGptUrl } from './protocol.mjs';
+
+const project = document.querySelector('#project');
+const children = document.querySelector('#children');
+const status = document.querySelector('#status');
+
+const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+const projectId = projectIdFromChatGptUrl(tab?.url);
+const current = await chrome.runtime.sendMessage({ type: 'settings.get' });
+project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${projectId}` : 'Open a ChatGPT Project first.';
+
+function render(bindings) {
+  children.replaceChildren();
+  for (const childId of current.children || []) {
+    const row = document.createElement('div');
+    row.className = 'child';
+    const assign = document.createElement('button');
+    const assigned = bindings?.[childId];
+    const assignedThreadUrl = current.threadUrls?.[childId];
+    assign.textContent = assignedThreadUrl === tab?.url
+      ? `✓ ${childId} — this thread`
+      : assigned === projectId
+        ? `${childId} — another thread in this project`
+        : assigned
+          ? `${childId} — assigned elsewhere`
+          : `Assign this thread to ${childId}`;
+    assign.disabled = !projectId;
+    assign.addEventListener('click', async () => {
+      const result = await chrome.runtime.sendMessage({ type: 'assign.currentProject', tabId: tab?.id, childId });
+      status.textContent = result.error || `Assigned this thread tab to ${childId}.`;
+      if (!result.error) render(result.bindings);
+    });
+    row.append(assign);
+
+    if (assigned) {
+      const clear = document.createElement('button');
+      clear.className = 'clear';
+      clear.textContent = '×';
+      clear.title = `Unassign ${childId}`;
+      clear.addEventListener('click', async () => {
+        const result = await chrome.runtime.sendMessage({ type: 'unassign.child', childId });
+        status.textContent = result.error || `Unassigned ${childId}.`;
+        if (!result.error) render(result.bindings);
+      });
+      row.append(clear);
+    }
+    children.append(row);
+  }
+  if (!(current.children || []).length) status.textContent = 'Family Tutor bridge is not connected yet.';
+}
+
+render(current.bindings || {});

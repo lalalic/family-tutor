@@ -1,0 +1,12 @@
+{
+  "name": "family-tutor-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/browser-bridge.mjs && node --check src/browser-mcp-stdio.mjs && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

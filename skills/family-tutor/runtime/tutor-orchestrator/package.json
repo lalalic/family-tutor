@@ -1,0 +1,13 @@
+{
+  "name": "family-tutor-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "check": "node --check src/index.mjs && node --check src/config.mjs && node --check src/backends/codex.mjs && node --check src/vision.mjs && node --check src/asr.mjs && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  }
+}
