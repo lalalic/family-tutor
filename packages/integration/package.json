@@ -1,0 +1,8 @@
+{
+  "name": "@family-tutor/integration-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --test test/*.test.mjs"
+  }
+}
