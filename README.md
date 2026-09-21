@@ -8,6 +8,13 @@ IDs. See [`docs/tenant-routing.md`](docs/tenant-routing.md) and the
 dependency-free [`@family-tutor/core`](packages/core/) route index. Run `npm ci`
 in each runtime package, then `npm run check` at the repository root.
 
+The reusable Discord boundary is [`@family-tutor/discord-adapter`](packages/discord-adapter/).
+It accepts authenticated logical targets, resolves provider IDs through core,
+and injects provider, audit, and rate-limit hooks. Model/tool callers must never
+supply a raw channel ID.
+
+The customer-facing Chrome adapter is documented in [`docs/extension.md`](docs/extension.md).
+
 ## Create a private/local instance
 
 All real family configuration, learner details, Discord identifiers, and durable learner memory belong under an ignored run directory:

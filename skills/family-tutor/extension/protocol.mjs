@@ -2,6 +2,12 @@ const CHATGPT_HOSTS = new Set(['chatgpt.com', 'chat.openai.com']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:43117/ws';
+export const HEALTH_STATES = Object.freeze({
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected',
+  RECOVERING: 'recovering',
+  ERROR: 'error',
+});
 
 export function isChatGptUrl(value) {
   try {
@@ -42,7 +48,25 @@ export function bindChild(bindings, childId, projectId) {
     if (existingChild !== id && existingProject !== project) next[existingChild] = existingProject;
   }
   next[id] = project;
-  return next;
+  return canonicalBindings(next);
+}
+
+export function canonicalBindings(bindings) {
+  return Object.fromEntries(
+    Object.entries(bindings || {})
+      .map(([childId, projectId]) => [String(childId).trim(), String(projectId).trim()])
+      .filter(([childId, projectId]) => childId && /^g-p-[A-Za-z0-9_-]+$/.test(projectId))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+export function safeErrorMessage(error, fallback = 'The extension could not complete the operation.') {
+  const raw = String(error?.message || error || '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (!raw) return fallback;
+  return raw
+    .replace(/(?:wss?|https?):\/\/[^\s)]+/gi, '[endpoint]')
+    .replace(/\b(token|authorization|secret|password)\s*[:=]\s*[^\s,;]+/gi, (_match, name) => `${name}=[redacted]`)
+    .slice(0, 240);
 }
 
 export function validateTurn(message) {

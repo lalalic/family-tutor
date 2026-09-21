@@ -1,4 +1,4 @@
-import { DEFAULT_BRIDGE_URL, bindChild, isChatGptUrl, projectIdFromChatGptUrl, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, isChatGptUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -12,7 +12,16 @@ let restoreTimer = null;
 let restoreFallbackTimer = null;
 
 async function settings() {
-  return chrome.storage.local.get({ bindings: {}, threadUrls: {} });
+  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth() });
+}
+
+function defaultHealth() {
+  return { state: HEALTH_STATES.DISCONNECTED, lastError: null, lastConnectedAt: null, recoveryCount: 0 };
+}
+
+async function updateHealth(patch) {
+  const current = await chrome.storage.local.get({ health: defaultHealth() });
+  await chrome.storage.local.set({ health: { ...defaultHealth(), ...current.health, ...patch } });
 }
 
 async function applyBootstrap() {
@@ -35,7 +44,7 @@ function send(message) {
 async function reportBindings() {
   const { bindings } = await settings();
   const version = chrome.runtime.getManifest().version;
-  for (const childId of Object.keys(bindings)) send({ type: 'tab.bind', childId, version });
+  for (const childId of Object.keys(canonicalBindings(bindings))) send({ type: 'tab.bind', childId, version });
 }
 
 async function familyGroups() {
@@ -344,11 +353,13 @@ async function connect() {
       message = JSON.parse(data);
       if (message.type === 'bridge.ready') {
         availableChildren = Array.isArray(message.children) ? message.children.map(String) : [];
+        await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString() });
         return;
       }
       if (message.type !== 'turn') return;
       await handleTurn(message);
     } catch (error) {
+      await updateHealth({ state: HEALTH_STATES.ERROR, lastError: safeErrorMessage(error) });
       send({
         type: 'turn.error',
         childId: message?.childId,
@@ -361,9 +372,13 @@ async function connect() {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
     socket = null;
+    updateHealth({ state: HEALTH_STATES.RECOVERING }).catch(() => {});
     scheduleReconnect();
   };
-  socket.onerror = () => socket?.close();
+  socket.onerror = () => {
+    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The local Family Tutor bridge is unavailable.' }).catch(() => {});
+    socket?.close();
+  };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -406,7 +421,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.type === 'settings.get') {
-    settings().then(({ bindings, threadUrls }) => respond({ bindings, threadUrls, children: availableChildren })).catch((error) => respond({ error: error.message }));
+    settings().then(({ bindings, threadUrls, health }) => respond({
+      bindings: canonicalBindings(bindings), threadUrls, health,
+      version: chrome.runtime.getManifest().version, children: availableChildren,
+    })).catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
@@ -425,7 +443,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       await reconcileFamilyTabs({ [childId]: tab.id });
       await reportBindings();
       respond({ ok: true, bindings, projectId, threadUrl: tab.url });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
@@ -439,7 +457,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       await chrome.storage.local.set({ bindings: next, threadUrls: nextThreadUrls });
       await reconcileFamilyTabs();
       respond({ ok: true, bindings: next });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 });

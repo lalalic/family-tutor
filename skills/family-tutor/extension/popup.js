@@ -3,11 +3,18 @@ import { projectIdFromChatGptUrl } from './protocol.mjs';
 const project = document.querySelector('#project');
 const children = document.querySelector('#children');
 const status = document.querySelector('#status');
+const health = document.querySelector('#health');
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const projectId = projectIdFromChatGptUrl(tab?.url);
 const current = await chrome.runtime.sendMessage({ type: 'settings.get' });
 project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${projectId}` : 'Open a ChatGPT Project first.';
+
+function renderHealth(current) {
+  const state = current.health?.state || 'unknown';
+  const detail = current.health?.lastError ? `\n${current.health.lastError}` : '';
+  health.textContent = `Extension ${current.version || 'unknown'} · bridge ${state}${detail}`;
+}
 
 function render(bindings) {
   children.replaceChildren();
@@ -50,3 +57,4 @@ function render(bindings) {
 }
 
 render(current.bindings || {});
+renderHealth(current);

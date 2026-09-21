@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bindChild, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, validateTurn } from '../protocol.mjs';
+import { bindChild, canonicalBindings, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from '../protocol.mjs';
 
 test('binding keeps one child per ChatGPT project and one project per child', () => {
   const bindings = bindChild({ alice: 'g-p-alpha', bob: 'g-p-beta' }, 'carol', 'g-p-beta');
   assert.deepEqual(bindings, { alice: 'g-p-alpha', carol: 'g-p-beta' });
-  assert.deepEqual(bindChild(bindings, 'alice', 'g-p-gamma'), { carol: 'g-p-beta', alice: 'g-p-gamma' });
+  assert.deepEqual(bindChild(bindings, 'alice', 'g-p-gamma'), { alice: 'g-p-gamma', carol: 'g-p-beta' });
+});
+
+test('bindings and diagnostics are deterministic and safe to display', () => {
+  assert.deepEqual(canonicalBindings({ zed: 'g-p-z', amy: 'g-p-a', invalid: 'not-a-project' }), { amy: 'g-p-a', zed: 'g-p-z' });
+  assert.equal(safeErrorMessage(new Error('failed at https://127.0.0.1:43117/ws token=super-secret')), 'failed at [endpoint] token=[redacted]');
+  assert.equal(safeErrorMessage(''), 'The extension could not complete the operation.');
 });
 
 test('bridge, tab, and project URLs stay on allowed hosts', () => {
