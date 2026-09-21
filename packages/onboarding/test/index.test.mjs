@@ -80,5 +80,13 @@ test('reports incomplete destination and extension checks without passing accept
   assert.match(result.state.projects.detail, /extension tab token=\[redacted\]/);
   const acceptance = await flow.acceptance();
   assert.equal(acceptance.ok, false);
-  assert.deepEqual(acceptance.checks, ['projects', 'acceptance']);
+  assert.deepEqual(acceptance.checks, ['projects']);
+});
+
+test('prevalidates all bindings so invalid input cannot partially bind', async () => {
+  const { flow, calls } = setup();
+  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  const result = await flow.destinations({ parent: { key: 'parent' }, children: [{ childId: 'unknown', destination: { key: 'x' } }] });
+  assert.equal(result.current, 'destinations');
+  assert.deepEqual(calls, []);
 });
