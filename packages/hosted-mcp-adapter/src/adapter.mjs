@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_TOOLS = Object.freeze([
   {
@@ -99,7 +100,8 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
       if (tool.scopes.some(scope => !session.scopes.includes(scope))) throw new Error('session scope is insufficient');
       walkForUnsafeSelectors(args);
       validateArguments(tool, args);
-      await rateLimiter({ familyId: session.familyId, tool: name, requestId });
+      const rateDecision = await rateLimiter({ familyId: session.familyId, tool: name, requestId });
+      if (rateDecision === false || rateDecision?.allowed === false) throw new Error('rate limit exceeded');
       const destination = args?.destination;
       if (!destination || destination.type === undefined || destination.key === undefined) throw new Error('destination type and key are required');
       const route = store.resolveDestination({ sessionToken: token, familyId: session.familyId, destinationType: destination.type, destinationKey: destination.key });
@@ -136,7 +138,7 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
   return Object.freeze({ handle, callTool, tools: Object.freeze([...registry.values()]) });
 }
 
-function cryptoRandomId() { return `req_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`; }
+function cryptoRandomId() { return `req_${randomUUID()}`; }
 
 export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024 } = {}) {
   if (!adapter?.handle) throw new Error('adapter is required');

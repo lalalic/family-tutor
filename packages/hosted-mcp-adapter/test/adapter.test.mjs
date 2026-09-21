@@ -63,3 +63,11 @@ test('audits rejection and invokes rate-limit hook after authentication', async 
   assert.equal(audits[0].destinationKey, null);
   assert.equal(audits[0].familyId, 'family-a');
 });
+
+test('a rate-limit denial stops the provider handler', async () => {
+  const { store, auth } = setup(); let called = false;
+  const adapter = createHostedMcpAdapter({ store, rateLimiter: () => ({ allowed: false }), handlers: { send_tutor_message: () => { called = true; } } });
+  const response = await adapter.handle({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'send_tutor_message', arguments: { destination: { type: 'child', key: 'alex' }, text: 'x' } } }, { headers: auth });
+  assert.equal(response.result.isError, true);
+  assert.equal(called, false);
+});
