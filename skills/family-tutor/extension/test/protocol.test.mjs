@@ -9,6 +9,17 @@ test('binding keeps one child per ChatGPT project and one project per child', ()
   assert.deepEqual(bindChild(bindings, 'alice', 'g-p-gamma'), { alice: 'g-p-gamma', carol: 'g-p-beta' });
 });
 
+
+test('bindings support an arbitrary child list without a fixed family-size cap', () => {
+  let bindings = {};
+  for (let index = 0; index < 40; index += 1) {
+    bindings = bindChild(bindings, `kid-${index}`, `g-p-project-${index}`);
+  }
+  assert.equal(Object.keys(bindings).length, 40);
+  assert.equal(bindings['kid-0'], 'g-p-project-0');
+  assert.equal(bindings['kid-39'], 'g-p-project-39');
+});
+
 test('bindings and diagnostics are deterministic and safe to display', () => {
   assert.deepEqual(canonicalBindings({ zed: 'g-p-z', amy: 'g-p-a', invalid: 'not-a-project' }), { amy: 'g-p-a', zed: 'g-p-z' });
   assert.equal(safeErrorMessage(new Error('failed at https://127.0.0.1:43117/ws token=super-secret')), 'failed at [endpoint] token=[redacted]');

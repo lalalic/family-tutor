@@ -64,6 +64,9 @@ Bindings are kept by Chrome extension storage, but the extension ID must remain
 stable. Keep the manifest `key` unchanged for customer updates; changing it
 creates a new extension identity and can strand existing bindings.
 
+
+The toolbar badge shows the number of children currently bound to ChatGPT Projects. Its badge/icon health follows the bridge state: green when connected, amber while recovering, red on error, and gray while disconnected. The popup renders the server-provided child list dynamically and does not impose a fixed family-size limit.
+
 ## Hosted connection
 
 Extension 2.4.0 uses the hosted bridge by default and obtains its extension session through OAuth/PKCE in the popup. Click **Connect Family Tutor**. The extension opens the Family Tutor OAuth/PKCE flow using Chrome Identity, exchanges the one-time authorization code for an extension-scoped session token, stores the extension access/refresh session in extension-local storage, silently refreshes the short-lived access token when needed, and then connects to `wss://family-tutor.qili2.com/ws`. Users do not copy or manage a family token. A hosted connection is not considered ready until the server authenticates the extension session and every expected child binding has reported `tab.bind`.

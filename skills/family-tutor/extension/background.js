@@ -127,8 +127,19 @@ const ACTION_ICON_PATHS = Object.freeze({
 
 async function syncActionHealth(health) {
   const state = ACTION_ICON_PATHS[health?.state] ? health.state : HEALTH_STATES.DISCONNECTED;
+  const { bindings = {} } = await chrome.storage.local.get({ bindings: {} });
+  const configuredKids = Object.keys(canonicalBindings(bindings)).length;
+  const badgeText = configuredKids > 999 ? '999+' : String(configuredKids);
+  const badgeColors = {
+    connected: '#22c55e',
+    recovering: '#f59e0b',
+    error: '#ef4444',
+    disconnected: '#6b7280',
+  };
   await chrome.action.setIcon({ path: ACTION_ICON_PATHS[state] });
-  await chrome.action.setTitle({ title: `Family Tutor · ${state}` });
+  await chrome.action.setBadgeText({ text: badgeText });
+  await chrome.action.setBadgeBackgroundColor({ color: badgeColors[state] });
+  await chrome.action.setTitle({ title: `Family Tutor · ${state} · ${configuredKids} configured kid${configuredKids === 1 ? '' : 's'}` });
 }
 
 async function updateHealth(patch) {
@@ -625,6 +636,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       await chrome.storage.local.set({ bindings, threadUrls });
       await reconcileFamilyTabs({ [childId]: tab.id });
       await reportBindings();
+      await syncActionHealth((await settings()).health).catch(() => {});
       respond({ ok: true, bindings, projectId, threadUrl: tab.url });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
@@ -639,6 +651,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       delete nextThreadUrls[String(message.childId || '')];
       await chrome.storage.local.set({ bindings: next, threadUrls: canonicalThreadUrls(next, nextThreadUrls) });
       await reconcileFamilyTabs();
+      await syncActionHealth((await settings()).health).catch(() => {});
       respond({ ok: true, bindings: next });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
