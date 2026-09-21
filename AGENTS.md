@@ -1,6 +1,29 @@
 # Family Tutor Agent Guide
 
-Use `../skills/family-tutor/SKILL.md` as the reusable tutoring/runtime contract.
+Use `skills/family-tutor/SKILL.md` as the reusable tutoring/runtime contract.
+
+## Commercial repository boundary
+
+- This checkout is the public standalone commercial product definition. Keep
+  shared hosted MCP/Discord routing, onboarding, extension, operations, pilot,
+  and promotion-site documentation aligned with the implementation in
+  `packages/`, `skills/family-tutor/extension/`, and `site/`.
+- The customer owns ChatGPT Plus/Developer Mode, ChatGPT Projects, and the
+  Discord server. Family Tutor provides the extension, shared hosted
+  connectivity/routing, support, and explicitly entitled premium tools; it is
+  not a curriculum marketplace or education-content SaaS.
+- Authenticate the family and authorize the scope before resolving a logical
+  child/parent destination. Never add model-facing APIs that accept arbitrary
+  raw Discord/channel/provider IDs. Never put secrets, child content, or
+  production family identifiers in tracked docs, tests, logs, or examples.
+- Validate documentation changes against the actual package behavior. The
+  release gate is `npm run check` plus `git diff --check`; customer readiness
+  additionally requires the real Discord acceptance path described in
+  `e2e.md`.
+- Treat `docs/privacy-consent.md` as the repository privacy contract and keep
+  it consistent with the child-channel, parent-telemetry, and minimum-necessary
+  safety-escalation rules below. It still requires owner/counsel approval before
+  commercial pilot launch.
 
 - This top-level directory is a public Neo project definition, not a family instance.
 - Use `runs/family/` as the private family root. Keep each learner's durable tutoring memory at `runs/family/<child-id>/AGENTS.md`; Codex owns tutor thread history, so do not mirror it into local session folders.
