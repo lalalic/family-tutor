@@ -248,38 +248,38 @@ Do not promise that every reminder is automatic, perfectly timed, or always corr
 
 ## Objection handling
 
-**“Is this just another AI chatbot?”**  
+**“Is this just another AI chatbot?”**
 No. The value is the family rhythm: a separate learning space for each child, continuity around what matters, and concise parent visibility. The site can mention the underlying AI only after explaining the outcome.
 
-**“Will I have to watch another app?”**  
+**“Will I have to watch another app?”**
 The intended parent experience is a short learning signal, not a stream of messages. Setup is assisted, and the exact channels and support window are agreed before participation.
 
-**“Can I read everything my child says?”**  
+**“Can I read everything my child says?”**
 Parents do not normally have access to the child’s tutor channel and are not routinely watching individual messages. Family Tutor may share appropriate learning signals; serious safety concerns are handled with minimum-necessary escalation.
 
-**“Will this replace me, a teacher, or a tutor?”**  
+**“Will this replace me, a teacher, or a tutor?”**
 No. It is a support layer. It can help with everyday questions and learning follow-up, while adults and educators remain important for judgment, care, and situations needing human help.
 
-**“What if my child needs a real person?”**  
+**“What if my child needs a real person?”**
 The product should make it easier to notice when parent or educator support may help. Do not market Family Tutor as a substitute for professional, school, or safeguarding support.
 
-**“How much does it cost?”**  
+**“How much does it cost?”**
 The current site describes a founding-family pilot with scope and pricing confirmed before participation. Keep the CTA an enquiry until the owner approves a final offer; do not turn the existing pilot hypothesis into a public promise.
 
-**“Will setup be complicated?”**  
+**“Will setup be complicated?”**
 The intended path is guided setup and an acceptance check. Keep technical names in the setup details, not the hero. Never promise zero setup or universal compatibility.
 
 ## CTA strategy
 
 Use one primary action throughout the page so the visitor does not have to decide between sales, demo, signup, and pilot flows that do not yet exist.
 
-Primary CTA: **Tell us what you want to make easier**  
+Primary CTA: **Tell us what you want to make easier**
 Destination: the approved founding-family enquiry path (`mailto:hello@qili2.com` in the current site).
 
-Secondary CTA: **See how it works**  
+Secondary CTA: **See how it works**
 Destination: the family-learning-loop / how-it-works section.
 
-Privacy CTA: **Read the privacy and consent notes**  
+Privacy CTA: **Read the privacy and consent notes**
 Destination: `/privacy-consent.html`.
 
 The enquiry prompt should ask only for a first name, children’s age ranges, and what the parent hopes to make easier. Keep the existing instruction not to include private child conversations. Do not add a child-content form, tracking pixels, invented scarcity, or pressure language.
