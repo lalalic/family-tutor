@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 const MAX_IMAGE_BYTES=12*1024*1024;
 const MAX_IMAGES=4;
 const DEFAULT_TTL_MS=15*60*1000;
+const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
 const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
 
 function safeName(name='image'){
@@ -44,6 +45,14 @@ function timingSafeEqualText(a,b){
 function textResult(value,isError=false){
   return {content:[{type:'text',text:typeof value==='string'?value:JSON.stringify(value)}],...(isError?{isError:true}:{})};
 }
+function contextWithCorrelation(prompt,correlationId){
+  const match=String(prompt||'').match(/^<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>$/);
+  if(!match) throw new Error('browser turns require a typed runtime context envelope');
+  let envelope;
+  try{ envelope=JSON.parse(match[1]); }catch{ throw new Error('browser runtime context is not valid JSON'); }
+  if(!envelope||!['kid','parent'].includes(envelope.type)||!envelope.data||typeof envelope.data!=='object'||Array.isArray(envelope.data)) throw new Error('browser runtime context is invalid');
+  return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({type:envelope.type,data:{...envelope.data,correlationId}})}\n</FAMILY_TUTOR_CONTEXT>`;
+}
 
 export class BrowserBridge {
   constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS}){
@@ -64,6 +73,7 @@ export class BrowserBridge {
     this.queues=new Map();
     this.inFlight=new Map();
     this.correlations=new Map();
+    this.completedCorrelations=new Map();
     this.childSockets=new Map();
     this.childVersions=new Map();
     this.server=null;
@@ -315,7 +325,11 @@ export class BrowserBridge {
 
   async reply(correlationId,text,{final=true}={}){
     const state=this.correlations.get(correlationId);
-    if(!state) throw new Error('unknown or expired correlation');
+    if(!state){
+      const completed=this.completedCorrelations.get(correlationId);
+      if(final&&completed&&completed.expiresAt>Date.now()) return {ok:true,childId:completed.childId,correlationId,final:true,duplicate:true};
+      throw new Error('unknown or expired correlation');
+    }
     if(this.inFlight.get(state.childId)!==correlationId) throw new Error('correlation is not active for child');
     const clean=String(text||'').trim();
     if(!clean) throw new Error('reply text is required');
@@ -327,6 +341,7 @@ export class BrowserBridge {
     state.resolve?.({ok:true,childId:state.childId});
     this.inFlight.delete(state.childId);
     await this.#deleteCorrelation(correlationId,state);
+    this.completedCorrelations.set(correlationId,{childId:state.childId,expiresAt:Date.now()+COMPLETED_CORRELATION_TTL_MS});
     this.#dispatch(state.childId);
     return {ok:true,childId:state.childId,correlationId,final:true};
   }
@@ -337,6 +352,7 @@ export class BrowserBridge {
   }
 
   async cleanupExpired(now=Date.now()){
+    for(const [id,completed] of this.completedCorrelations) if(completed.expiresAt<=now) this.completedCorrelations.delete(id);
     for(const [id,state] of this.correlations){
       if(state.expiresAt>now) continue;
       if(this.inFlight.get(state.childId)===id) this.inFlight.delete(state.childId);
@@ -348,19 +364,10 @@ export class BrowserBridge {
   }
 
   #extensionPayload(turn){
-    const delivery=[
-      turn.text,
-      '',
-      '[Family Tutor Discord delivery]',
-      `Correlation ID: ${turn.correlationId}`,
-      'Send a concise intermediate progress message with the MCP tool reply_to_discord using this correlationId and final=false.',
-      'Then send the final student-facing response with reply_to_discord using the same correlationId and final=true.',
-      'Do not ask the student for the correlation ID and do not rely on the browser UI response as delivery.',
-    ].join('\n');
     return {
       type:'turn',
       childId:turn.childId,
-      prompt:delivery,
+      prompt:contextWithCorrelation(turn.text,turn.correlationId),
       correlation:{correlationId:turn.correlationId},
       attachments:turn.attachments.map(file=>({...file,token:this.token})),
     };

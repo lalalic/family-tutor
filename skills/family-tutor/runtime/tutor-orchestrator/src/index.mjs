@@ -7,7 +7,9 @@ import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
 import { collectImageAttachments, understandImages } from './vision.mjs';
 import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
 import { reactToReceivedChildMessage } from './discord-reactions.mjs';
+import { handleBrowserChildMessage } from './browser-ingress.mjs';
 import { buildParentContextPrompt, buildSlashStatusPrompt, canUseStatus, childProjectName, findChildByChannelName, formatSlashOverview, formatSlashStatus, isAuthorizedParent, parseParentMessage, renderParentNaturalText, statusCommand, statusDenialMessage, validateChildChannel } from './parent-context.mjs';
+import { buildKidContext } from './runtime-context.mjs';
 
 const configFile=process.env.FAMILY_TUTOR_CONFIG;
 if(!configFile) throw new Error('FAMILY_TUTOR_CONFIG is required');
@@ -59,7 +61,7 @@ const queues=new Map();
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
 let browserBridge=null;
 
-function turnPrompt(_child,message){ return `Student message:\n${message}`; }
+function turnPrompt(child,message){ return buildKidContext({childId:child.id,text:message}); }
 function parseTutorText(text){
   const parent=text.match(/<FAMILY_TUTOR_PARENT>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_PARENT>/i);
   const memory=text.match(/<FAMILY_TUTOR_MEMORY>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_MEMORY>/i);
@@ -162,18 +164,6 @@ async function handleChildMessage(message,child){
 }
 
 
-async function handleBrowserChildMessage(message,child){
-  const incoming=message.content.trim();
-  const images=collectImageAttachments(message).map(a=>({
-    url:a.url,name:a.name||`attachment-${a.id}`,mimeType:a.contentType||'',size:Number(a.size||0),
-  }));
-  if(!incoming&&!images.length) return;
-  await browserBridge.enqueue({
-    childId:child.id,text:incoming,attachments:images,
-    origin:{channelId:message.channelId,messageId:message.id,threadId:message.channel?.isThread?.()?message.channelId:null},
-  });
-}
-
 async function resolveMentionedChild(command){
   if(!command?.channelMentionId) return null;
   const channel=await client.channels.fetch(command.channelMentionId);
@@ -184,7 +174,25 @@ async function resolveMentionedChild(command){
 }
 function learnerMemory(child){ try{return fs.readFileSync(agentsFile(child),'utf8');}catch{return '';} }
 
-async function runParentTurn(message,child,prompt){
+function childChannelFor(message,child){
+  return message.guild?.channels?.cache?.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id)||null;
+}
+async function runParentTurn(message,child,prompt,{reminder=false}={}){
+  if(reminder){
+    const target=childChannelFor(message,child);
+    if(!target?.isTextBased()) throw new Error(`Configured child channel #${child.id} is unavailable.`);
+    if(browserBridge){
+      await browserBridge.turn({childId:child.id,prompt,origin:{channelId:target.id,messageId:message.id,threadId:null},reply:async text=>sendChunks(target,text)});
+      return sendChunks(message.channel,`✅ Reminder sent to **${child.name}**.`);
+    }
+    const result=await backend.turn({prompt,childId:child.id});
+    const parsed=parseTutorText(result.text);
+    await applyTutorSideEffects(child,parsed);
+    await sendChunks(target,parsed.childText||result.text);
+    await sendAssistantOutputs(target,result.outputs);
+    await sendChunks(message.channel,`✅ Reminder sent to **${child.name}**.`);
+    return;
+  }
   if(browserBridge){
     await browserBridge.turn({childId:child.id,prompt,origin:{channelId:message.channelId,messageId:message.id,threadId:null}});
     return;
@@ -204,7 +212,7 @@ async function handleParentControl(message){
   const value=command.command==='parent-query'?renderParentNaturalText(command.value,command.channelMentionId,child.name):command.value;
   if(!value) return message.reply('Please include the question or guidance.');
   const prompt=buildParentContextPrompt({child,command:command.command,value,authorId:message.author.id,messageId:message.id,memory:learnerMemory(child)});
-  return runParentTurn(message,child,prompt);
+  return runParentTurn(message,child,prompt,{reminder:command.command==='!remind'});
 }
 
 async function statusForChild(child){
@@ -258,7 +266,7 @@ client.on(Events.MessageCreate,message=>{
     try{validateChildChannel(child,message.channel);}catch(error){console.error('[family-tutor] child channel configuration error',error); message.reply(error.message).catch(()=>{}); return;}
     reactToReceivedChildMessage(message,child.id);
     const handler=browserBridge?handleBrowserChildMessage:handleChildMessage;
-    serialize(child.id,()=>handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
+    serialize(child.id,()=>browserBridge?handler(message,child,browserBridge):handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
     return;
   }
   if(config.discord.parentChannelId && message.channelId===config.discord.parentChannelId){

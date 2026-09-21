@@ -35,7 +35,7 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'help',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"help"}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[{url:`http://127.0.0.1:${source.address().port}/x.png`,name:'x.png',mimeType:'image/png',size:13}],
       origin:{channelId:'thread-1',threadId:'thread-1',messageId:'m1'},
     });
@@ -43,8 +43,9 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     assert.equal(payload.type,'turn');
     assert.equal(payload.childId,'kid1');
     assert.match(payload.prompt,/help/);
-    assert.match(payload.prompt,/Correlation ID:/);
-    assert.match(payload.prompt,/reply_to_discord/);
+    assert.match(payload.prompt,/\"type\":\"kid\"/);
+    assert.match(payload.prompt,/\"correlationId\":\"/);
+    assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
     assert.equal(payload.correlation.correlationId.length>20,true);
     assert.equal(payload.origin,undefined);
     const blobUrl=new URL(payload.attachments[0].url);
@@ -79,6 +80,42 @@ test('serializes per child and rejects cross-child or unauthenticated access',as
     const second=await fetch(`${bridge.endpoint()}/v1/turns/next?childId=kid1`,{headers:{authorization:`Bearer ${token}`}}); assert.equal((await second.json()).text,'two');
     await assert.rejects(bridge.enqueue({childId:'other',text:'no',origin:{channelId:'c',messageId:'m3'}}),/unknown child/);
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('preserves parent request data and adds only the active correlation id',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-browser-parent-'));
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{}}).start();
+  let socket;
+  try{
+    const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
+    socket=new WebSocket(`${bridge.websocketEndpoint()}?token=${token}`);
+    await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+    socket.send(JSON.stringify({type:'tab.bind',childId:'kid1'}));
+    const message=new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error('WebSocket parent turn timeout')),1500);
+      const onMessage=data=>{
+        const value=JSON.parse(data.toString());
+        if(value.type!=='turn') return;
+        clearTimeout(timer); socket.off('message',onMessage); resolve(value);
+      };
+      socket.on('message',onMessage);
+    });
+    const turnPromise=bridge.turn({
+      childId:'kid1',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"targetChild":"kid1","request":"reminder","message":"review fractions"}}\n</FAMILY_TUTOR_CONTEXT>',
+      origin:{channelId:'parent-channel-id',messageId:'parent-message-id'},
+    });
+    const payload=await message;
+    const envelope=JSON.parse(payload.prompt.match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/)[1]);
+    assert.equal(envelope.type,'parent');
+    assert.deepEqual(envelope.data,{targetChild:'kid1',request:'reminder',message:'review fractions',correlationId:payload.correlation.correlationId});
+    assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
+    const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
+    assert.equal(firstReply.duplicate,undefined);
+    await turnPromise;
+    const duplicate=await bridge.reply(payload.correlation.correlationId,'done again');
+    assert.deepEqual(duplicate,{ok:true,childId:'kid1',correlationId:payload.correlation.correlationId,final:true,duplicate:true});
+  }finally{socket?.close(); await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
 test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKCE tokens for MCP',async()=>{

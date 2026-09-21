@@ -40,10 +40,10 @@ export async function prepareAttachments(attachments,childId,baseDir=os.tmpdir()
   }catch(error){fs.rmSync(dir,{recursive:true,force:true}); throw error;}
 }
 
-export function buildTutorPrompt(childId,memory,prompt,attachments=[]){
-  const contract=`You are a private, age-appropriate tutor for child ${childId}. Teach with hints and one focused question when useful; diagnose understanding and verify it with evidence. Keep this child's context isolated. Never reveal or discuss runtime control markers.\n\nControl protocol:\n- Emit <FAMILY_TUTOR_MEMORY>complete Markdown replacement for AGENTS.md</FAMILY_TUTOR_MEMORY> only when durable learner facts changed; do not put a transcript in it.\n- Emit <FAMILY_TUTOR_PARENT>concise learning telemetry: topic, evidence, misconception/progress, next step, and useful parent support</FAMILY_TUTOR_PARENT> when a parent update is useful; never mirror the raw transcript.\n- Emit <FAMILY_TUTOR_ROLLOVER/> only after all durable facts from the current thread are captured in FAMILY_TUTOR_MEMORY.\n- Keep all markers out of the child-visible answer; answer the child normally.\n\n<DURABLE_LEARNER_CONTEXT>\n${memory}\n</DURABLE_LEARNER_CONTEXT>`;
-  const attachmentContext=attachments.length?`\n\n<LOCAL_ATTACHMENTS>\n${attachments.map(a=>`${a.name} (${a.mimeType}): ${a.path}`).join('\n')}\n</LOCAL_ATTACHMENTS>`:'';
-  return `${contract}${attachmentContext}\n\n${prompt}`;
+export function buildTutorPrompt(context,attachments=[]){
+  if(typeof context !== 'string' || !context.includes('<FAMILY_TUTOR_CONTEXT>')) throw new Error('Codex turns require a typed runtime context envelope');
+  const attachmentContext=attachments.length?`\n<FAMILY_TUTOR_ATTACHMENTS>\n${JSON.stringify(attachments)}\n</FAMILY_TUTOR_ATTACHMENTS>`:'';
+  return `${context}${attachmentContext}`;
 }
 
 export function buildCodexArgv({childDir,threadId=null,model=null,imageFiles=[]}){
@@ -66,8 +66,6 @@ export class CodexBackend{
   readThread(childId){try{return JSON.parse(fs.readFileSync(this.stateFile(childId),'utf8')).threadId||null}catch{return null}}
   writeThread(childId,threadId){const file=this.stateFile(childId); fs.mkdirSync(path.dirname(file),{recursive:true}); const tmp=`${file}.tmp`; fs.writeFileSync(tmp,JSON.stringify({threadId},null,2)+'\n',{mode:0o600}); fs.renameSync(tmp,file);}
   async turn({childId,prompt,attachments=[]}){
-    const memoryFile=this.memoryFile(childId);
-    const memory=fs.existsSync(memoryFile)?fs.readFileSync(memoryFile,'utf8'):'';
     fs.mkdirSync(this.childDir(childId),{recursive:true});
     const thread=this.readThread(childId);
     let downloaded={dir:null,files:[],descriptions:[]};
@@ -75,7 +73,7 @@ export class CodexBackend{
       downloaded=await prepareAttachments(attachments,childId,this.childDir(childId));
       const imageFiles=downloaded.files.filter((_,i)=>String(attachments[i]?.mimeType||'').toLowerCase().startsWith('image/'));
       const args=buildCodexArgv({childDir:this.childDir(childId),threadId:thread,model:this.config.model,imageFiles});
-      const result=await run(args,buildTutorPrompt(childId,memory,prompt,downloaded.descriptions),this.childDir(childId),(this.config.maxRuntimeSeconds||600)*1000+30_000);
+      const result=await run(args,buildTutorPrompt(prompt,downloaded.descriptions),this.childDir(childId),(this.config.maxRuntimeSeconds||600)*1000+30_000);
       if(result.threadId) this.writeThread(childId,result.threadId);
       if(!result.text) throw new Error('Codex returned no assistant text');
       return result;

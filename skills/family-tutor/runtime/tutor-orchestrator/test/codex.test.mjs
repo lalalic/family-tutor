@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseJsonl, prepareAttachments, buildTutorPrompt, buildCodexArgv, CodexBackend } from '../src/backends/codex.mjs';
+import { buildKidContext } from '../src/runtime-context.mjs';
 
 test('builds safe Codex argv for new/resumed text and image turns',()=>{
   const base=['exec','--json','--sandbox','read-only','--skip-git-repo-check','-C','/instance/sammy'];
@@ -49,8 +50,8 @@ test('prepares non-image attachments and keeps Codex cwd child-scoped',async()=>
   assert.equal(prepared.descriptions[0].mimeType,'text/plain');
   assert.match(prepared.descriptions[0].path,new RegExp(`${childDir}/\\.family-tutor-attachments-`));
   assert.equal(fs.readFileSync(prepared.files[0],'utf8'),'hello');
-  const prompt=buildTutorPrompt('sammy','memory','help',prepared.descriptions);
-  assert.match(prompt,/FAMILY_TUTOR_MEMORY/); assert.match(prompt,/FAMILY_TUTOR_PARENT/); assert.match(prompt,/FAMILY_TUTOR_ROLLOVER/); assert.match(prompt,/notes\.txt \(text\/plain\)/);
+  const prompt=buildTutorPrompt(buildKidContext({childId:'sammy',text:'help'}),prepared.descriptions);
+  assert.match(prompt,/FAMILY_TUTOR_CONTEXT/); assert.match(prompt,/"type":"kid"/); assert.match(prompt,/notes\.txt/); assert.doesNotMatch(prompt,/Teach with hints|FAMILY_TUTOR_PARENT/);
   fs.rmSync(prepared.dir,{recursive:true,force:true});
   fs.rmSync(instance,{recursive:true,force:true});
 });

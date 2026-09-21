@@ -89,7 +89,12 @@ test('one hosted product composes Discord ingress, extension routing, ChatGPT MC
     const turn = await extensionA.nextTurn();
     assert.equal(turn.childId, 'alex');
     assert.equal(turn.correlation.correlationId, inbound.correlationId);
-    assert.match(turn.prompt, /Explain fractions/);
+    assert.match(turn.prompt, /<FAMILY_TUTOR_CONTEXT>/);
+    assert.match(turn.prompt, /\"type\":\"kid\"/);
+    assert.match(turn.prompt, /\"childId\":\"alex\"/);
+    assert.match(turn.prompt, /\"correlationId\":\"/);
+    assert.match(turn.prompt, /\"studentMessage\":\"Explain fractions\"/);
+    assert.doesNotMatch(turn.prompt, /Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
 
     const wrongFamilyReply = await product.mcp.callTool('reply_to_discord', {
       correlationId: inbound.correlationId,
@@ -105,6 +110,14 @@ test('one hosted product composes Discord ingress, extension routing, ChatGPT MC
     assert.equal(reply.isError, undefined);
     assert.equal(deliveries.at(-1).channelId, 'family-a-alex');
     assert.equal(deliveries.at(-1).metadata.replyToMessageId, 'discord-msg-a1');
+    const deliveryCount = deliveries.length;
+    const duplicateReply = await product.mcp.callTool('reply_to_discord', {
+      correlationId: inbound.correlationId,
+      text: 'duplicate final should be a no-op',
+      final: true,
+    }, { authorization: `Bearer ${extensionA.session.token}` });
+    assert.equal(duplicateReply.isError, undefined);
+    assert.equal(deliveries.length, deliveryCount);
 
     const crossFamily = await product.mcp.callTool('send_tutor_message', { familyId: 'family-b', destination: { type: 'child', key: 'alex' }, text: 'x' }, { authorization: `Bearer ${aSession.token}` });
     const rawProvider = await product.mcp.callTool('send_tutor_message', { destination: { type: 'child', key: 'alex', providerId: 'family-b-alex' }, text: 'x' }, { authorization: `Bearer ${aSession.token}` });
