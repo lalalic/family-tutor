@@ -1,9 +1,8 @@
 # Architecture
 
-Family Tutor has two related but separate runtime surfaces: a shared hosted
-commercial service for customer families, and the reusable local tutor runtime
-used for development/dogfooding. Customer traffic must not fall back to an
-arbitrary local instance.
+Family Tutor has one hosted commercial product composition for customer
+families. The reusable local tutor runtime remains a development/dogfood
+compatibility path and is not part of hosted customer traffic.
 
 ```mermaid
 flowchart LR
@@ -20,6 +19,12 @@ The hosted path authenticates a family session, checks scope and entitlement,
 accepts only logical destinations, resolves provider bindings inside trusted
 adapters, and records metadata without child content. `/healthz` is liveness;
 `/readyz` is dependency readiness; `/mcp` is authenticated application traffic.
+The composition is `createFamilyTutorProduct` in
+`packages/integration/src/index.mjs`: it wires provisioning/session identity,
+onboarding, extension readiness, hosted MCP, Discord delivery, lifecycle
+export/delete/revocation, and the hosted server. Production startup uses the
+same composition through `createProductionFamilyTutorProduct` and the one
+`FAMILY_TUTOR_STORAGE_PATH` configuration contract.
 
 The local tutoring path remains useful for the operator and for the existing
 family runtime:

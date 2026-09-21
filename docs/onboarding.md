@@ -1,10 +1,10 @@
 # Customer onboarding and acceptance
 
-Family Tutor onboarding is an assisted, no-JSON-editing flow. A support
-operator or product UI calls the onboarding coordinator in
-`@family-tutor/onboarding`; customers provide only the guided connection and
-binding choices. Provider IDs, bearer tokens, and child messages stay inside
-trusted adapters and are never entered as model-facing destinations.
+Family Tutor onboarding is an assisted, no-JSON-editing flow on the hosted
+product composition. A support operator or product UI calls
+`product.onboarding(familyId)` from `packages/integration`; it delegates to the
+real provisioning store, MCP, Discord, and extension interfaces while keeping
+provider IDs, bearer tokens, and child messages inside trusted adapters.
 
 ## Customer path
 
@@ -33,6 +33,12 @@ binding, or extension check never marks setup complete.
 
 Support can retry a failed step after the customer fixes the issue; no JSON or
 private runtime state needs to be edited.
+
+For a local product rehearsal, run `npm run check:product`. It provisions two
+synthetic families through the same composition, completes their onboarding and
+Project readiness checks, sends MCP traffic through Discord, verifies isolation,
+and exercises export, delete, and session revocation. This is complementary to
+the real Discord acceptance path below, not a replacement for it.
 
 ## Acceptance checklist
 

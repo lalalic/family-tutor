@@ -26,6 +26,9 @@ provider/channel routing is part of the commercial boundary.
 - `packages/onboarding`: resumable, no-JSON-editing setup flow for ChatGPT
   Developer Mode, the shared bot, logical destinations, child Projects,
   extension health, and same-origin acceptance probes.
+- `packages/integration`: canonical hosted product composition. It connects
+  provisioning, onboarding, extension readiness, hosted MCP, Discord delivery,
+  lifecycle controls, and `/healthz`/`/readyz` in one runtime path.
 - `skills/family-tutor/extension`: unpacked Chrome Manifest V3 adapter for
   deterministic child-to-Project binding, recovery, and diagnostics.
 - `skills/family-tutor/`: reusable local tutoring runtime for an operator's
@@ -65,6 +68,9 @@ redaction tests, MCP/Discord adapter tests, onboarding tests, and extension
 syntax/protocol tests. The production release gate also requires a real Discord
 acceptance run with distinct probes for each child; service health or direct
 backend probes alone are insufficient. See [`e2e.md`](e2e.md).
+
+The product-level synthetic gate can be run independently with
+`npm run check:product`; it is also included in `npm run check`.
 
 ## Private local instance
 

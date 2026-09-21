@@ -1,6 +1,10 @@
 # Family Tutor E2E verification
 
-The release gate exercises the real Discord path through the single PM2-resident `family-tutor-orchestrator`, not only a service status check or a direct Codex probe.
+The hosted product release gate has two layers: `npm run check:product` runs the
+canonical synthetic two-family flow through the product composition, and the
+real Discord path runs through the single PM2-resident
+`family-tutor-orchestrator`. Neither a service status check nor a direct Codex
+probe is sufficient by itself.
 
 ## Preconditions
 
