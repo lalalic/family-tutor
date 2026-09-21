@@ -110,8 +110,11 @@ test('preserves parent request data and adds only the active correlation id',asy
     assert.equal(envelope.type,'parent');
     assert.deepEqual(envelope.data,{targetChild:'kid1',request:'reminder',message:'review fractions',correlationId:payload.correlation.correlationId});
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
-    await bridge.reply(payload.correlation.correlationId,'done');
+    const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
+    assert.equal(firstReply.duplicate,undefined);
     await turnPromise;
+    const duplicate=await bridge.reply(payload.correlation.correlationId,'done again');
+    assert.deepEqual(duplicate,{ok:true,childId:'kid1',correlationId:payload.correlation.correlationId,final:true,duplicate:true});
   }finally{socket?.close(); await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
