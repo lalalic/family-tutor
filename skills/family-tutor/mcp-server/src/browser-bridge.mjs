@@ -176,7 +176,14 @@ export class BrowserBridge {
     const scope=url.searchParams.get('scope')||'tutor';
     const challenge=url.searchParams.get('code_challenge');
     const challengeMethod=url.searchParams.get('code_challenge_method');
-    if(responseType!=='code'||clientId!==this.oauthClientId||!this.#validRedirect(redirectUri)||resource!==this.#oauthResource()||!scope.split(/\s+/).includes('tutor')||challengeMethod!=='S256'||!challenge) return json(res,400,{error:'invalid_request'});
+    const invalid = responseType!=='code' ? 'response_type'
+      : clientId!==this.oauthClientId ? 'client_id'
+      : !this.#validRedirect(redirectUri) ? 'redirect_uri'
+      : resource!==this.#oauthResource() ? 'resource'
+      : !scope.split(/\s+/).includes('tutor') ? 'scope'
+      : challengeMethod!=='S256'||!challenge ? 'pkce'
+      : null;
+    if(invalid) return json(res,400,{error:'invalid_request',error_description:`Invalid OAuth ${invalid}.`});
     const code=crypto.randomBytes(32).toString('base64url');
     this.oauthCodes.set(code,{clientId,redirectUri,resource,scope,challenge,expiresAt:Date.now()+5*60*1000});
     const target=new URL(redirectUri); target.searchParams.set('code',code); if(state) target.searchParams.set('state',state); if(url.searchParams.get('iss')!==null) target.searchParams.set('iss',this.publicOrigin);
