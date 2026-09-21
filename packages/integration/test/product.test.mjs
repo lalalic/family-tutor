@@ -110,6 +110,14 @@ test('one hosted product composes Discord ingress, extension routing, ChatGPT MC
     assert.equal(reply.isError, undefined);
     assert.equal(deliveries.at(-1).channelId, 'family-a-alex');
     assert.equal(deliveries.at(-1).metadata.replyToMessageId, 'discord-msg-a1');
+    const deliveryCount = deliveries.length;
+    const duplicateReply = await product.mcp.callTool('reply_to_discord', {
+      correlationId: inbound.correlationId,
+      text: 'duplicate final should be a no-op',
+      final: true,
+    }, { authorization: `Bearer ${extensionA.session.token}` });
+    assert.equal(duplicateReply.isError, undefined);
+    assert.equal(deliveries.length, deliveryCount);
 
     const crossFamily = await product.mcp.callTool('send_tutor_message', { familyId: 'family-b', destination: { type: 'child', key: 'alex' }, text: 'x' }, { authorization: `Bearer ${aSession.token}` });
     const rawProvider = await product.mcp.callTool('send_tutor_message', { destination: { type: 'child', key: 'alex', providerId: 'family-b-alex' }, text: 'x' }, { authorization: `Bearer ${aSession.token}` });

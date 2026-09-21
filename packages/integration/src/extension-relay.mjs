@@ -23,6 +23,7 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
   const sockets = new Map();
   const socketState = new WeakMap();
   const correlations = new Map();
+  const completedCorrelations = new Map();
   let wss = null;
   let cleanupTimer = null;
 
@@ -92,19 +93,32 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
     const turn = correlations.get(id);
     if (!turn || turn.expiresAt <= clock()) {
       correlations.delete(id);
-      throw new Error('correlation is unavailable');
+      const completed = completedCorrelations.get(id);
+      if (!completed || completed.expiresAt <= clock() || final === false) {
+        completedCorrelations.delete(id);
+        throw new Error('correlation is unavailable');
+      }
+      if (completed.familyId !== familyId) throw new Error('correlation is not authorized for this family');
+      if (childId !== null && completed.childId !== childId) throw new Error('correlation is not authorized for this child');
+      return Object.freeze({ messageId: completed.messageId, familyId: completed.familyId, childId: completed.childId, final: true, duplicate: true });
     }
     if (turn.familyId !== familyId) throw new Error('correlation is not authorized for this family');
     if (childId !== null && turn.childId !== childId) throw new Error('correlation is not authorized for this child');
     const content = required(text, 'text');
     const result = await provider.send({ channelId: turn.providerChannelId, content, metadata: { replyToMessageId: turn.messageId, correlationId: id } });
-    if (final !== false) correlations.delete(id);
+    if (final !== false) {
+      correlations.delete(id);
+      completedCorrelations.set(id, {
+        familyId: turn.familyId, childId: turn.childId, messageId: result?.messageId ?? null, expiresAt: clock() + turnTtlMs,
+      });
+    }
     return Object.freeze({ messageId: result?.messageId ?? null, familyId: turn.familyId, childId: turn.childId, final: final !== false });
   }
 
   function cleanup() {
     const now = clock();
     for (const [id, turn] of correlations) if (turn.expiresAt <= now) correlations.delete(id);
+    for (const [id, turn] of completedCorrelations) if (turn.expiresAt <= now) completedCorrelations.delete(id);
   }
 
   function attach(server) {
