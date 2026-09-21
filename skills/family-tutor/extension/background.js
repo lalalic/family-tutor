@@ -38,7 +38,7 @@ function randomBase64Url(size = 32) {
   return base64Url(crypto.getRandomValues(new Uint8Array(size)));
 }
 
-async function authorizeExtensionSession() {
+async function authorizeExtensionSession({ interactive = false } = {}) {
   const redirectUri = chrome.identity.getRedirectURL('family-tutor');
   const verifier = randomBase64Url(32);
   const state = randomBase64Url(24);
@@ -53,7 +53,7 @@ async function authorizeExtensionSession() {
   authorize.searchParams.set('code_challenge', challenge);
   authorize.searchParams.set('code_challenge_method', 'S256');
 
-  const callbackUrl = await chrome.identity.launchWebAuthFlow({ url: authorize.toString(), interactive: true });
+  const callbackUrl = await chrome.identity.launchWebAuthFlow({ url: authorize.toString(), interactive });
   if (!callbackUrl) throw new Error('Family Tutor authorization was cancelled.');
   const callback = new URL(callbackUrl);
   if (callback.searchParams.get('state') !== state) throw new Error('Family Tutor authorization state mismatch.');
@@ -104,6 +104,18 @@ async function refreshExtensionSession(refreshToken) {
   const token = await response.json().catch(() => ({}));
   if (!response.ok || !token.access_token) throw new Error(token.error_description || token.error || 'Family Tutor session refresh failed.');
   return token.access_token;
+}
+
+async function ensureHostedSession({ interactive = false } = {}) {
+  let current = await settings();
+  if (current.bridgeToken && current.bridgeRefreshToken) return current;
+  const session = await authorizeExtensionSession({ interactive });
+  await chrome.storage.local.set({
+    bridgeUrl: DEFAULT_BRIDGE_URL,
+    bridgeToken: session.accessToken,
+    bridgeRefreshToken: session.refreshToken,
+  });
+  return { ...current, bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken };
 }
 
 async function updateHealth(patch) {
@@ -432,10 +444,18 @@ async function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
   let current = await settings();
   const bridgeUrl = normalizeBridgeUrl(current.bridgeUrl || DEFAULT_BRIDGE_URL);
-  if (bridgeUrl.startsWith('wss://') && current.bridgeRefreshToken && (!current.bridgeToken || tokenExpiresSoon(current.bridgeToken))) {
-    const bridgeToken = await refreshExtensionSession(current.bridgeRefreshToken);
-    await chrome.storage.local.set({ bridgeToken });
-    current = { ...current, bridgeToken };
+  if (bridgeUrl.startsWith('wss://')) {
+    try {
+      if (!current.bridgeToken || !current.bridgeRefreshToken) current = await ensureHostedSession({ interactive: false });
+      if (!current.bridgeToken || tokenExpiresSoon(current.bridgeToken)) {
+        const bridgeToken = await refreshExtensionSession(current.bridgeRefreshToken);
+        await chrome.storage.local.set({ bridgeToken });
+        current = { ...current, bridgeToken };
+      }
+    } catch (error) {
+      await updateHealth({ state: HEALTH_STATES.ERROR, lastError: safeErrorMessage(error), recoveryCount: 0 });
+      return;
+    }
   }
   const ws = new WebSocket(bridgeUrl);
   socket = ws;
@@ -551,7 +571,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 
   if (message?.type === 'connection.oauth') {
     (async () => {
-      const session = await authorizeExtensionSession();
+      const session = await authorizeExtensionSession({ interactive: true });
       await chrome.storage.local.set({ bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken });
       if (socket) { try { socket.close(); } catch {} socket = null; }
       await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null, recoveryCount: 0 });

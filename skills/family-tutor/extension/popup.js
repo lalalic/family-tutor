@@ -9,7 +9,7 @@ const connectFamily = document.querySelector('#connect-family');
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const projectId = projectIdFromChatGptUrl(tab?.url);
 const current = await chrome.runtime.sendMessage({ type: 'settings.get' });
-connectFamily.textContent = current.tokenConfigured ? 'Reconnect Family Tutor' : 'Connect Family Tutor';
+connectFamily.hidden = current.health?.state !== 'error';
 project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${projectId}` : 'Open a ChatGPT Project first.';
 
 function renderHealth(current) {
@@ -68,6 +68,6 @@ connectFamily.addEventListener('click', async () => {
   status.textContent = 'Connecting Family Tutor…';
   const result = await chrome.runtime.sendMessage({ type: 'connection.oauth' });
   status.textContent = result.error || 'Family Tutor connected.';
-  if (!result.error) connectFamily.textContent = 'Reconnect Family Tutor';
+  if (!result.error) connectFamily.hidden = true;
   connectFamily.disabled = false;
 });
