@@ -118,9 +118,24 @@ async function ensureHostedSession({ interactive = false } = {}) {
   return { ...current, bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken };
 }
 
+const ACTION_ICON_PATHS = Object.freeze({
+  connected: { 16: 'icons/connected-16.png', 32: 'icons/connected-32.png', 48: 'icons/connected-48.png', 128: 'icons/connected-128.png' },
+  recovering: { 16: 'icons/recovering-16.png', 32: 'icons/recovering-32.png', 48: 'icons/recovering-48.png', 128: 'icons/recovering-128.png' },
+  error: { 16: 'icons/error-16.png', 32: 'icons/error-32.png', 48: 'icons/error-48.png', 128: 'icons/error-128.png' },
+  disconnected: { 16: 'icons/disconnected-16.png', 32: 'icons/disconnected-32.png', 48: 'icons/disconnected-48.png', 128: 'icons/disconnected-128.png' },
+});
+
+async function syncActionHealth(health) {
+  const state = ACTION_ICON_PATHS[health?.state] ? health.state : HEALTH_STATES.DISCONNECTED;
+  await chrome.action.setIcon({ path: ACTION_ICON_PATHS[state] });
+  await chrome.action.setTitle({ title: `Family Tutor · ${state}` });
+}
+
 async function updateHealth(patch) {
   const current = await chrome.storage.local.get({ health: defaultHealth() });
-  await chrome.storage.local.set({ health: { ...defaultHealth(), ...current.health, ...patch } });
+  const health = { ...defaultHealth(), ...current.health, ...patch };
+  await chrome.storage.local.set({ health });
+  await syncActionHealth(health).catch(() => {});
 }
 
 async function applyBootstrap() {
@@ -661,6 +676,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 
 (async () => {
   await applyBootstrap();
+  const current = await settings();
+  await syncActionHealth(current.health).catch(() => {});
   connect();
   restoreOnBrowserActivity();
 })();
