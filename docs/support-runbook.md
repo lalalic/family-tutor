@@ -53,7 +53,7 @@ require explicit owner/counsel approval.
 
 ## Account closure
 
-Use the privacy procedure in `docs/privacy-consent.md`: suspend, revoke,
+Use the privacy procedure in [`privacy-consent.md`](privacy-consent.md): suspend, revoke,
 export only the approved redacted record, remove runtime state, and confirm
 completion. The current code does not yet provide a single self-service
 delete/export command; do not claim that it does.
