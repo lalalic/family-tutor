@@ -1,4 +1,4 @@
-import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, isChatGptUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -364,7 +364,7 @@ async function connect() {
         type: 'turn.error',
         childId: message?.childId,
         correlation: message?.correlation,
-        error: error instanceof Error ? error.message : String(error),
+        error: safeErrorMessage(error),
       });
     }
   };
@@ -372,7 +372,10 @@ async function connect() {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
     socket = null;
-    updateHealth({ state: HEALTH_STATES.RECOVERING }).catch(() => {});
+    chrome.storage.local.get({ health: defaultHealth() }).then(({ health }) => updateHealth({
+      state: HEALTH_STATES.RECOVERING,
+      recoveryCount: Number(health?.recoveryCount || 0) + 1,
+    })).catch(() => {});
     scheduleReconnect();
   };
   socket.onerror = () => {
@@ -399,7 +402,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.type === 'turn.error') {
-    send(message);
+    send({ ...message, error: safeErrorMessage(message.error) });
     return;
   }
 
@@ -416,7 +419,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
       }
       respond({ ok: true, base64: btoa(binary), mimeType: response.headers.get('content-type') || message.mimeType || 'application/octet-stream' });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
@@ -438,7 +441,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!availableChildren.includes(childId)) throw new Error('unknown child');
       const current = await settings();
       const bindings = bindChild(current.bindings, childId, projectId);
-      const threadUrls = { ...current.threadUrls, [childId]: tab.url };
+      const threadUrls = canonicalThreadUrls(bindings, { ...current.threadUrls, [childId]: tab.url });
       await chrome.storage.local.set({ bindings, threadUrls });
       await reconcileFamilyTabs({ [childId]: tab.id });
       await reportBindings();
@@ -454,7 +457,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const nextThreadUrls = { ...threadUrls };
       delete next[String(message.childId || '')];
       delete nextThreadUrls[String(message.childId || '')];
-      await chrome.storage.local.set({ bindings: next, threadUrls: nextThreadUrls });
+      await chrome.storage.local.set({ bindings: next, threadUrls: canonicalThreadUrls(next, nextThreadUrls) });
       await reconcileFamilyTabs();
       respond({ ok: true, bindings: next });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));

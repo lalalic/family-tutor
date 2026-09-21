@@ -60,6 +60,20 @@ export function canonicalBindings(bindings) {
   );
 }
 
+export function canonicalThreadUrls(bindings, threadUrls) {
+  const canonical = canonicalBindings(bindings);
+  return Object.fromEntries(
+    Object.entries(threadUrls || {})
+      .map(([childId, threadUrl]) => [String(childId).trim(), String(threadUrl || '').trim()])
+      .filter(([childId, threadUrl]) => (
+        canonical[childId]
+        && threadUrl
+        && projectIdFromChatGptUrl(threadUrl) === canonical[childId]
+      ))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
 export function safeErrorMessage(error, fallback = 'The extension could not complete the operation.') {
   const raw = String(error?.message || error || '').replace(/[\r\n\t]+/g, ' ').trim();
   if (!raw) return fallback;
