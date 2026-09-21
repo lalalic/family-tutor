@@ -74,6 +74,7 @@ export class BrowserBridge {
     this.inFlight=new Map();
     this.correlations=new Map();
     this.completedCorrelations=new Map();
+    this.rotationPending=new Map();
     this.childSockets=new Map();
     this.childVersions=new Map();
     this.server=null;
@@ -370,6 +371,7 @@ export class BrowserBridge {
       prompt:contextWithCorrelation(turn.text,turn.correlationId),
       correlation:{correlationId:turn.correlationId},
       attachments:turn.attachments.map(file=>({...file,token:this.token})),
+      rotateThread:this.rotationPending.has(turn.childId),
     };
   }
 
@@ -441,7 +443,12 @@ export class BrowserBridge {
         }).catch(error=>socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:String(error?.message||'Could not delete kid.')})));
         return;
       }
-      if(message?.type==='extension.ping'||message?.type==='turn.ack') return;
+      if(message?.type==='turn.ack'){
+        const childId=String(message.childId||'').trim();
+        if(message.rotated===true&&this.rotationPending.has(childId)) this.rotationPending.delete(childId);
+        return;
+      }
+      if(message?.type==='extension.ping') return;
       if(message?.type==='tab.bind'){
         const childId=String(message.childId||'').trim();
         if(!this.children.has(childId)){ socket.send(JSON.stringify({type:'bridge.error',error:'unknown child'})); return; }
@@ -481,11 +488,22 @@ export class BrowserBridge {
     if(method==='initialize') return {jsonrpc:'2.0',id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'family-tutor-browser-bridge',version:'0.1.0'}}};
     if(method==='notifications/initialized') return null;
     if(method==='ping') return {jsonrpc:'2.0',id,result:{}};
-    if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[{name:'reply_to_discord',title:'Reply to Discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor reply…','openai/toolInvocation/invoked':'Family Tutor reply sent'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},text:{type:'string',minLength:1,maxLength:12000,description:'Student-facing reply text to send to the originating Discord message.'},final:{type:'boolean',default:true,description:'Set false for a progress update and true for the final reply.'}}}}]}};
+    if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[
+      {name:'reply_to_discord',title:'Reply to Discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor reply…','openai/toolInvocation/invoked':'Family Tutor reply sent'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},text:{type:'string',minLength:1,maxLength:12000,description:'Student-facing reply text to send to the originating Discord message.'},final:{type:'boolean',default:true,description:'Set false for a progress update and true for the final reply.'}}}},
+      {name:'request_new_thread',title:'Refresh Tutor Context',description:'Request that Family Tutor transparently use a fresh ChatGPT thread for this learner starting with the next Discord turn. Use only when the current conversation context has become long enough to reduce tutoring quality.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
+    ]}};
     if(method==='tools/call'){
-      if(params?.name!=='reply_to_discord') return {jsonrpc:'2.0',id,result:textResult({error:'unknown tool'},true)};
-      try{return {jsonrpc:'2.0',id,result:textResult(await this.reply(params.arguments?.correlationId,params.arguments?.text,{final:params.arguments?.final!==false}))};}
-      catch(error){return {jsonrpc:'2.0',id,result:textResult({error:String(error?.message||error)},true)};}
+      try{
+        if(params?.name==='reply_to_discord') return {jsonrpc:'2.0',id,result:textResult(await this.reply(params.arguments?.correlationId,params.arguments?.text,{final:params.arguments?.final!==false}))};
+        if(params?.name==='request_new_thread'){
+          const correlationId=String(params.arguments?.correlationId||'');
+          const state=this.correlations.get(correlationId);
+          if(!state||this.inFlight.get(state.childId)!==correlationId) throw new Error('correlation is not active');
+          this.rotationPending.set(state.childId,{requestedAt:new Date().toISOString(),reason:String(params.arguments?.reason||'context_long').slice(0,200)});
+          return {jsonrpc:'2.0',id,result:textResult({ok:true,scheduled:true,appliesTo:'next_turn'})};
+        }
+        return {jsonrpc:'2.0',id,result:textResult({error:'unknown tool'},true)};
+      }catch(error){return {jsonrpc:'2.0',id,result:textResult({error:String(error?.message||error)},true)};}
     }
     return {jsonrpc:'2.0',id,error:{code:-32601,message:`Method not found: ${method}`}};
   }

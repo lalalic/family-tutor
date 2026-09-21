@@ -421,9 +421,22 @@ async function resolveProjectTab(projectId) {
 
 async function handleTurn(raw) {
   const turn = validateTurn(raw);
-  const { bindings, threadUrls } = await settings();
+  let { bindings, threadUrls } = await settings();
   const projectId = bindings[turn.childId];
   if (!projectId) throw new Error(`no ChatGPT project is assigned for child ${turn.childId}`);
+
+  if (turn.rotateThread === true) {
+    const current = await settings();
+    const nextThreadUrls = { ...current.threadUrls };
+    delete nextThreadUrls[turn.childId];
+    await chrome.storage.local.set({ threadUrls: nextThreadUrls });
+    threadUrls = nextThreadUrls;
+    const existing = await resolveProjectTab(projectId);
+    if (Number.isInteger(existing?.id)) {
+      await chrome.tabs.update(existing.id, { url: `https://chatgpt.com/g/${projectId}/project` });
+      await waitForProjectTab(existing.id, projectId, 30000);
+    }
+  }
 
   await reconcileFamilyTabs({}, { allowCreate: false });
   const savedThreadUrl = threadUrls[turn.childId];
@@ -587,7 +600,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           threadUrls: { ...current.threadUrls, [childId]: threadUrl },
         });
       }
-      send(message);
+      send({ ...message, rotated: message.rotated === true });
     })().catch(() => send(message));
     return;
   }
