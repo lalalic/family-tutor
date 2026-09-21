@@ -112,3 +112,37 @@ test('a rate-limit denial stops the provider handler', async () => {
   assert.equal(response.result.isError, true);
   assert.equal(called, false);
 });
+
+test('returns a stable error and sanitized audit reason when a handler throws', async () => {
+  const { store, auth } = setup(); const audits = [];
+  const adapter = createHostedMcpAdapter({
+    store,
+    audit: event => audits.push(event),
+    handlers: { send_tutor_message: () => { throw new Error('provider secret token=abc123'); } },
+  });
+  const response = await adapter.handle({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'send_tutor_message', arguments: { destination: { type: 'child', key: 'alex' }, text: 'hello' } } }, { headers: auth });
+  assert.deepEqual(response.result.content, [{ type: 'text', text: '{"error":"request rejected"}' }]);
+  assert.equal(audits.at(-1).reason, 'request rejected');
+  assert.ok(!JSON.stringify(audits).includes('abc123'));
+});
+
+test('keeps malformed and unauthorized calls privacy-safe', async () => {
+  const { store, session, auth } = setup();
+  const audits = [];
+  const adapter = createHostedMcpAdapter({ store, audit: event => audits.push(event), handlers: { send_tutor_message: () => ({ ok: true }) } });
+  const malformed = await adapter.handle({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'send_tutor_message', arguments: { destination: { type: 'child', key: 'alex' }, text: 'x', familyId: 'secret-family' } } }, { headers: auth });
+  assert.equal(malformed.result.content[0].text, '{"error":"request rejected"}');
+  const childStore = { ...store, authenticateSession: () => ({ ...session, childId: 'other-child' }) };
+  const childAdapter = createHostedMcpAdapter({ store: childStore, audit: event => audits.push(event), handlers: { send_tutor_message: () => ({ ok: true }) } });
+  const unauthorized = await childAdapter.handle({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'send_tutor_message', arguments: { destination: { type: 'child', key: 'alex' }, text: 'x' } } }, { headers: auth });
+  assert.equal(unauthorized.result.content[0].text, '{"error":"session is not authorized for this child"}');
+  assert.ok(audits.every(event => !JSON.stringify(event).includes('secret-family')));
+});
+
+test('does not leak authentication-store exceptions during discovery', async () => {
+  const adapter = createHostedMcpAdapter({
+    store: { authenticateSession: () => { throw new Error('database password'); }, resolveDestination() {} },
+  });
+  const response = await adapter.handle({ jsonrpc: '2.0', id: 11, method: 'tools/list' }, { headers: { authorization: 'Bearer token' } });
+  assert.deepEqual(response.error, { code: -32001, message: 'authentication required' });
+});

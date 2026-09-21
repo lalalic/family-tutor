@@ -85,6 +85,7 @@ const SAFE_ERRORS = new Set([
   'text must be a non-empty string of at most 12000 characters',
   'topic must be a non-empty string of at most 500 characters',
   'family is not active', 'destination is not bound for this family',
+  'session is not authorized for this family', 'session is not authorized for this child',
 ]);
 function safeMessage(error) { return SAFE_ERRORS.has(error?.message) ? error.message : 'request rejected'; }
 
