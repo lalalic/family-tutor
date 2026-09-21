@@ -112,24 +112,26 @@ export function createProvisioningStore({ filePath = null, clock = Date.now, idG
     activateFamily(familyId) { return mutate(() => { const record = family(familyId); record.status = 'active'; record.updatedAt = timestamp(clock); return clone(record); }); },
     createSession(options) {
       rejectTranscriptFields(options, 'createSession');
-      const { familyId, ttlMs = DEFAULT_SESSION_TTL_MS, scopes = ['tutor'] } = options;
+      const { familyId, childId = null, ttlMs = DEFAULT_SESSION_TTL_MS, scopes = ['tutor'] } = options;
       return mutate(() => {
         const record = family(familyId);
         if (record.status !== 'active') throw new Error('family is not active');
+        const normalizedChild = childId === null ? null : id(childId, 'childId');
+        if (normalizedChild !== null && !record.children.some(child => child.childId === normalizedChild)) throw new Error('child is not provisioned');
         if (!Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > 30 * 24 * 60 * 60 * 1000) throw new Error('ttlMs is out of range');
         if (!Array.isArray(scopes) || scopes.some(scope => typeof scope !== 'string' || !scope.trim())) throw new Error('scopes must be non-empty strings');
         const token = idGenerator('session');
         const sessionId = id(idGenerator('sid'), 'sessionId');
         const createdAt = timestamp(clock);
         const expiresAt = new Date(clock() + ttlMs).toISOString();
-        state.sessions[sessionId] = { sessionId, familyId: record.familyId, tokenHash: hashToken(token), scopes: [...new Set(scopes)], createdAt, expiresAt, revokedAt: null };
-        return { sessionId, familyId: record.familyId, token, scopes: [...new Set(scopes)], createdAt, expiresAt };
+        state.sessions[sessionId] = { sessionId, familyId: record.familyId, childId: normalizedChild, tokenHash: hashToken(token), scopes: [...new Set(scopes)], createdAt, expiresAt, revokedAt: null };
+        return { sessionId, familyId: record.familyId, childId: normalizedChild, token, scopes: [...new Set(scopes)], createdAt, expiresAt };
       });
     },
     authenticateSession(token) {
       const record = sessionFor(token);
       if (!record || state.families[record.familyId]?.status !== 'active') return null;
-      return clone({ sessionId: record.sessionId, familyId: record.familyId, scopes: record.scopes, expiresAt: record.expiresAt });
+      return clone({ sessionId: record.sessionId, familyId: record.familyId, childId: record.childId ?? null, scopes: record.scopes, expiresAt: record.expiresAt });
     },
     revokeSession(sessionId) { return mutate(() => { const record = state.sessions[id(sessionId, 'sessionId')]; if (!record) throw new Error('session is not found'); record.revokedAt = timestamp(clock); return { sessionId: record.sessionId, revokedAt: record.revokedAt }; }); },
     resolveDestination(options) {

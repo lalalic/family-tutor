@@ -77,6 +77,17 @@ function safeAudit(event) {
   };
 }
 
+const SAFE_ERRORS = new Set([
+  'authentication failed', 'unknown tool', 'tool is not enabled for this family',
+  'session scope is insufficient', 'rate limit exceeded', 'destination type and key are required',
+  'tool arguments must be an object', 'destination must be an object', 'destination must contain only type and key',
+  'destination type and key are invalid', 'study plans require a child destination',
+  'text must be a non-empty string of at most 12000 characters',
+  'topic must be a non-empty string of at most 500 characters',
+  'family is not active', 'destination is not bound for this family',
+]);
+function safeMessage(error) { return SAFE_ERRORS.has(error?.message) ? error.message : 'request rejected'; }
+
 /**
  * Hosted MCP boundary. The session store is the sole source of family identity;
  * request arguments can name only logical destinations within that identity.
@@ -104,6 +115,7 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
       if (rateDecision === false || rateDecision?.allowed === false) throw new Error('rate limit exceeded');
       const destination = args?.destination;
       if (!destination || destination.type === undefined || destination.key === undefined) throw new Error('destination type and key are required');
+      if (session.childId !== null && (destination.type !== 'child' || destination.key !== session.childId)) throw new Error('session is not authorized for this child');
       const route = store.resolveDestination({ sessionToken: token, familyId: session.familyId, destinationType: destination.type, destinationKey: destination.key });
       const handler = handlers[name];
       if (typeof handler !== 'function') throw new Error('tool is not configured');
@@ -111,8 +123,9 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
       writeAudit({ ...base, familyId: session.familyId, destinationType: route.destinationType, destinationKey: route.destinationKey, outcome: 'succeeded' });
       return result(value);
     } catch (error) {
-      writeAudit({ ...base, familyId: session?.familyId, outcome: 'rejected', reason: error.message });
-      return result({ error: error.message }, true);
+      const message = safeMessage(error);
+      writeAudit({ ...base, familyId: session?.familyId, outcome: 'rejected', reason: message });
+      return result({ error: message }, true);
     }
   }
 
