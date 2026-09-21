@@ -26,10 +26,20 @@ async function readJson(req,maxBytes=256*1024){
   }
   return chunks.length?JSON.parse(Buffer.concat(chunks).toString('utf8')):{};
 }
-function json(res,status,body){
+function json(res,status,body,headers={}){
   const data=Buffer.from(JSON.stringify(body));
-  res.writeHead(status,{'content-type':'application/json','content-length':String(data.length),'cache-control':'no-store'});
+  res.writeHead(status,{'content-type':'application/json','content-length':String(data.length),'cache-control':'no-store',...headers});
   res.end(data);
+}
+async function readForm(req,maxBytes=64*1024){
+  const chunks=[]; let size=0;
+  for await(const chunk of req){ size+=chunk.length; if(size>maxBytes) throw new Error('request body too large'); chunks.push(chunk); }
+  return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+}
+function b64url(value){return Buffer.from(value).toString('base64url');}
+function timingSafeEqualText(a,b){
+  const left=Buffer.from(String(a||'')),right=Buffer.from(String(b||''));
+  return left.length===right.length&&crypto.timingSafeEqual(left,right);
 }
 function textResult(value,isError=false){
   return {content:[{type:'text',text:typeof value==='string'?value:JSON.stringify(value)}],...(isError?{isError:true}:{})};
@@ -59,12 +69,18 @@ export class BrowserBridge {
     this.token=null;
     this.cleanupTimer=null;
     this.lastExtensionError=null;
+    this.publicOrigin=String(process.env.FAMILY_TUTOR_PUBLIC_ORIGIN||'https://family-tutor.qili2.com').replace(/\/$/,'');
+    this.oauthClientId=process.env.FAMILY_TUTOR_OAUTH_CLIENT_ID||'family-tutor-chatgpt';
+    this.oauthClientSecretFile=path.join(this.root,'oauth-client-secret');
+    this.oauthClientSecret=null;
+    this.oauthCodes=new Map();
   }
 
   async start(){
     await fsp.mkdir(this.blobRoot,{recursive:true,mode:0o700});
     this.token=this.configuredToken||await this.#loadOrCreateToken();
     if(this.token.length<24) throw new Error('browser bridge token must be at least 24 characters');
+    this.oauthClientSecret=await this.#loadOrCreateOAuthClientSecret();
     this.server=http.createServer((req,res)=>this.#handle(req,res).catch(error=>{
       console.error('[family-tutor] browser bridge request failed',error);
       if(!res.headersSent) json(res,500,{error:'bridge request failed'});
@@ -101,6 +117,83 @@ export class BrowserBridge {
       await fsp.writeFile(this.tokenFile,token+'\n',{mode:0o600});
       return token;
     }
+  }
+
+  async #loadOrCreateOAuthClientSecret(){
+    try{return (await fsp.readFile(this.oauthClientSecretFile,'utf8')).trim();}
+    catch{
+      const secret=crypto.randomBytes(32).toString('base64url');
+      await fsp.writeFile(this.oauthClientSecretFile,secret+'\n',{mode:0o600});
+      return secret;
+    }
+  }
+
+  #oauthResource(){return `${this.publicOrigin}/mcp`;}
+  #oauthMetadataUrl(){return `${this.publicOrigin}/.well-known/oauth-protected-resource`;}
+  #oauthChallenge(error='invalid_token',description='Authentication required'){
+    return `Bearer resource_metadata=\"${this.#oauthMetadataUrl()}\", scope=\"tutor\", error=\"${error}\", error_description=\"${description.replace(/[\"\r\n]/g,' ')}\"`;
+  }
+  #validRedirect(uri){
+    try{const url=new URL(uri);return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');}
+    catch{return false;}
+  }
+  #signAccessToken({scope='tutor',resource=this.#oauthResource(),clientId=this.oauthClientId,expiresIn=3600}={}){
+    const payload=b64url(JSON.stringify({iss:this.publicOrigin,aud:resource,client_id:clientId,scope,exp:Math.floor(Date.now()/1000)+expiresIn}));
+    const signature=crypto.createHmac('sha256',this.token).update(`ft1.${payload}`).digest('base64url');
+    return `ft1.${payload}.${signature}`;
+  }
+  #verifyAccessToken(token){
+    const parts=String(token||'').split('.');
+    if(parts.length!==3||parts[0]!=='ft1') return false;
+    const expected=crypto.createHmac('sha256',this.token).update(`ft1.${parts[1]}`).digest('base64url');
+    if(!timingSafeEqualText(parts[2],expected)) return false;
+    try{
+      const payload=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
+      return payload.iss===this.publicOrigin&&payload.aud===this.#oauthResource()&&payload.client_id===this.oauthClientId&&String(payload.scope||'').split(/\s+/).includes('tutor')&&Number(payload.exp)>Math.floor(Date.now()/1000);
+    }catch{return false;}
+  }
+  #mcpAuthorized(req){
+    const value=String(req.headers.authorization||'');
+    if(value===`Bearer ${this.token}`) return true;
+    const match=value.match(/^Bearer\s+(\S+)$/i);
+    return Boolean(match&&this.#verifyAccessToken(match[1]));
+  }
+  #oauthClientCredentials(req,form){
+    const header=String(req.headers.authorization||'');
+    if(/^Basic\s+/i.test(header)){
+      try{const raw=Buffer.from(header.replace(/^Basic\s+/i,''),'base64').toString('utf8');const split=raw.indexOf(':');return {id:decodeURIComponent(raw.slice(0,split)),secret:decodeURIComponent(raw.slice(split+1))};}
+      catch{return {id:'',secret:''};}
+    }
+    return {id:form.get('client_id')||'',secret:form.get('client_secret')||''};
+  }
+  #oauthClientValid(id,secret){return id===this.oauthClientId&&timingSafeEqualText(secret,this.oauthClientSecret);}
+  #oauthAuthorize(url,res){
+    const responseType=url.searchParams.get('response_type');
+    const clientId=url.searchParams.get('client_id');
+    const redirectUri=url.searchParams.get('redirect_uri');
+    const state=url.searchParams.get('state')||'';
+    const resource=url.searchParams.get('resource')||this.#oauthResource();
+    const scope=url.searchParams.get('scope')||'tutor';
+    const challenge=url.searchParams.get('code_challenge');
+    const challengeMethod=url.searchParams.get('code_challenge_method');
+    if(responseType!=='code'||clientId!==this.oauthClientId||!this.#validRedirect(redirectUri)||resource!==this.#oauthResource()||!scope.split(/\s+/).includes('tutor')||challengeMethod!=='S256'||!challenge) return json(res,400,{error:'invalid_request'});
+    const code=crypto.randomBytes(32).toString('base64url');
+    this.oauthCodes.set(code,{clientId,redirectUri,resource,scope,challenge,expiresAt:Date.now()+5*60*1000});
+    const target=new URL(redirectUri); target.searchParams.set('code',code); if(state) target.searchParams.set('state',state); if(url.searchParams.get('iss')!==null) target.searchParams.set('iss',this.publicOrigin);
+    res.writeHead(302,{location:target.toString(),'cache-control':'no-store'});res.end();
+  }
+  async #oauthToken(req,res){
+    const form=await readForm(req);
+    const credentials=this.#oauthClientCredentials(req,form);
+    if(!this.#oauthClientValid(credentials.id,credentials.secret)) return json(res,401,{error:'invalid_client'});
+    if(form.get('grant_type')!=='authorization_code') return json(res,400,{error:'unsupported_grant_type'});
+    const code=form.get('code')||''; const record=this.oauthCodes.get(code); this.oauthCodes.delete(code);
+    if(!record||record.expiresAt<Date.now()||record.clientId!==credentials.id||record.redirectUri!==form.get('redirect_uri')) return json(res,400,{error:'invalid_grant'});
+    const verifier=form.get('code_verifier')||'';
+    const derived=crypto.createHash('sha256').update(verifier).digest('base64url');
+    if(!verifier||!timingSafeEqualText(derived,record.challenge)) return json(res,400,{error:'invalid_grant'});
+    const resource=form.get('resource')||record.resource; if(resource!==record.resource) return json(res,400,{error:'invalid_target'});
+    return json(res,200,{access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId}),token_type:'Bearer',expires_in:3600,scope:record.scope});
   }
 
   endpoint(){return `http://${this.host}:${this.port}`;}
@@ -292,7 +385,7 @@ export class BrowserBridge {
     if(method==='initialize') return {jsonrpc:'2.0',id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'family-tutor-browser-bridge',version:'0.1.0'}}};
     if(method==='notifications/initialized') return null;
     if(method==='ping') return {jsonrpc:'2.0',id,result:{}};
-    if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[{name:'reply_to_discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string'},text:{type:'string',minLength:1},final:{type:'boolean',default:true}}}}]}};
+    if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[{name:'reply_to_discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}]},inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string'},text:{type:'string',minLength:1},final:{type:'boolean',default:true}}}}]}};
     if(method==='tools/call'){
       if(params?.name!=='reply_to_discord') return {jsonrpc:'2.0',id,result:textResult({error:'unknown tool'},true)};
       try{return {jsonrpc:'2.0',id,result:textResult(await this.reply(params.arguments?.correlationId,params.arguments?.text,{final:params.arguments?.final!==false}))};}
@@ -303,6 +396,10 @@ export class BrowserBridge {
 
   async #handle(req,res){
     const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);
+    if(req.method==='GET'&&url.pathname==='/.well-known/oauth-protected-resource') return json(res,200,{resource:this.#oauthResource(),authorization_servers:[this.publicOrigin],scopes_supported:['tutor'],resource_documentation:`${this.publicOrigin}/`});
+    if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic'],scopes_supported:['tutor']});
+    if(req.method==='GET'&&url.pathname==='/oauth/authorize') return this.#oauthAuthorize(url,res);
+    if(req.method==='POST'&&url.pathname==='/oauth/token') return this.#oauthToken(req,res);
     if(req.method==='POST'&&url.pathname==='/mcp/reply'){
       if(!this.#authorized(req,url)) return json(res,401,{error:'unauthorized'});
       const body=await readJson(req);
@@ -310,7 +407,7 @@ export class BrowserBridge {
       catch(error){return json(res,400,{error:String(error?.message||error)});}
     }
     if(req.method==='POST'&&url.pathname==='/mcp'){
-      if(!this.#authorized(req,url)) return json(res,401,{error:'unauthorized'});
+      if(!this.#mcpAuthorized(req)) return json(res,401,{error:'unauthorized'},{'www-authenticate':this.#oauthChallenge()});
       const response=await this.#mcp(await readJson(req));
       if(response===null){res.writeHead(202);return res.end();}
       return json(res,200,response);

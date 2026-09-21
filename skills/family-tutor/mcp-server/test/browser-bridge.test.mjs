@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -77,5 +78,71 @@ test('serializes per child and rejects cross-child or unauthenticated access',as
     await bridge.reply(a.correlationId,'done');
     const second=await fetch(`${bridge.endpoint()}/v1/turns/next?childId=kid1`,{headers:{authorization:`Bearer ${token}`}}); assert.equal((await second.json()).text,'two');
     await assert.rejects(bridge.enqueue({childId:'other',text:'no',origin:{channelId:'c',messageId:'m3'}}),/unknown child/);
+  }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKCE tokens for MCP',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-oauth-'));
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{}}).start();
+  try{
+    const metadata=await fetch(`${bridge.endpoint()}/.well-known/oauth-protected-resource`);
+    assert.equal(metadata.status,200);
+    const protectedResource=await metadata.json();
+    assert.equal(protectedResource.resource,'https://family-tutor.qili2.com/mcp');
+    assert.deepEqual(protectedResource.authorization_servers,['https://family-tutor.qili2.com']);
+    assert.deepEqual(protectedResource.scopes_supported,['tutor']);
+
+    const authMetadata=await fetch(`${bridge.endpoint()}/.well-known/oauth-authorization-server`);
+    assert.equal(authMetadata.status,200);
+    const authDocument=await authMetadata.json();
+    assert.equal(authDocument.authorization_endpoint,'https://family-tutor.qili2.com/oauth/authorize');
+    assert.equal(authDocument.token_endpoint,'https://family-tutor.qili2.com/oauth/token');
+    assert.deepEqual(authDocument.code_challenge_methods_supported,['S256']);
+    assert.equal(authDocument.token_endpoint_auth_methods_supported.includes('client_secret_post'),true);
+
+    const unauthenticated=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{}})});
+    assert.equal(unauthenticated.status,401);
+    assert.match(unauthenticated.headers.get('www-authenticate'),/oauth-protected-resource/);
+
+    const verifier=crypto.randomBytes(32).toString('base64url');
+    const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
+    const redirectUri='https://chatgpt.com/connector/oauth/test-callback';
+    const authorize=new URL(`${bridge.endpoint()}/oauth/authorize`);
+    authorize.searchParams.set('response_type','code');
+    authorize.searchParams.set('client_id','family-tutor-chatgpt');
+    authorize.searchParams.set('redirect_uri',redirectUri);
+    authorize.searchParams.set('scope','tutor');
+    authorize.searchParams.set('resource','https://family-tutor.qili2.com/mcp');
+    authorize.searchParams.set('state','state-1');
+    authorize.searchParams.set('code_challenge',challenge);
+    authorize.searchParams.set('code_challenge_method','S256');
+    const authorization=await fetch(authorize,{redirect:'manual'});
+    assert.equal(authorization.status,302);
+    const callback=new URL(authorization.headers.get('location'));
+    assert.equal(callback.origin,'https://chatgpt.com');
+    assert.equal(callback.searchParams.get('state'),'state-1');
+    const code=callback.searchParams.get('code');
+    assert.ok(code);
+
+    const secret=fs.readFileSync(path.join(root,'.browser-bridge','oauth-client-secret'),'utf8').trim();
+    const form=new URLSearchParams({
+      grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:'family-tutor-chatgpt',client_secret:secret,
+      code_verifier:verifier,resource:'https://family-tutor.qili2.com/mcp',
+    });
+    const tokenResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
+    assert.equal(tokenResponse.status,200);
+    const token=await tokenResponse.json();
+    assert.equal(token.token_type,'Bearer');
+    assert.equal(token.scope,'tutor');
+    assert.ok(token.access_token.startsWith('ft1.'));
+
+    const initialized=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
+    assert.equal(initialized.status,200);
+    assert.equal((await initialized.json()).result.serverInfo.name,'family-tutor-browser-bridge');
+
+    const listed=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/list',params:{}})});
+    const listedBody=await listed.json();
+    assert.equal(listedBody.result.tools[0].name,'reply_to_discord');
+    assert.deepEqual(listedBody.result.tools[0].securitySchemes,[{type:'oauth2',scopes:['tutor']}]);
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
