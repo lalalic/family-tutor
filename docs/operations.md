@@ -32,6 +32,15 @@ expiry, and revocation state. It rejects transcript-shaped fields. Schema
 version 1 is not a migration engine: incompatible changes require an explicit
 migration and restore rehearsal before rollout.
 
+The core store provides authenticated, scope-gated `exportFamily`/`exportChild`
+and `deleteFamily`/`deleteChild` operations for operator workflows. Export is a
+redacted record: it includes logical keys and session metadata, never provider
+identifiers or token hashes. Deletion supports a dry run and requires exact
+family/child confirmation. It removes only Family Tutor state (bindings and
+sessions); it does not mutate ChatGPT, Discord, private learner runtime, or
+externally retained audit data. Follow the confirmation and recording procedure
+in [`support-runbook.md`](support-runbook.md).
+
 For the JSON store, stop writes, copy the state file with permissions preserved,
 and verify the copy parses before starting a replacement process. Use encrypted
 database snapshots for hosted deployments. Rehearse restoration before the

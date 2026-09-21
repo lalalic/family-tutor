@@ -55,8 +55,17 @@ require explicit owner/counsel approval.
 
 Use the privacy procedure in [`privacy-consent.md`](privacy-consent.md): suspend, revoke,
 export only the approved redacted record, remove runtime state, and confirm
-completion. The current code does not yet provide a single self-service
-delete/export command; do not claim that it does.
+completion. Use a family-scoped session with the `family:export` scope for
+export. Use `family:delete` for deletion, first run the dry-run, then require
+the exact family or child identifier as confirmation. A family-level session
+cannot be used to operate on another family, and a child-scoped session cannot
+operate on another child or the whole family.
+
+The operation removes Family Tutor's logical bindings and session state only.
+It does not delete customer-owned ChatGPT Projects/threads, Discord data,
+private learner memory, or external-provider audit records. Record only the
+request status, approved result, operator, and safe request/incident ID; never
+put provider IDs, tokens, or child content in the support record.
 
 ## Support service levels for the pilot
 

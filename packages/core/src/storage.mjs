@@ -34,6 +34,8 @@ function validateState(state) {
 function hashToken(token) { return createHash('sha256').update(token, 'utf8').digest('hex'); }
 function newId(prefix) { return `${prefix}_${randomBytes(18).toString('base64url')}`; }
 function clone(value) { return structuredClone(value); }
+const EXPORT_SCOPE = 'family:export';
+const DELETE_SCOPE = 'family:delete';
 
 /**
  * Persistent provisioning state. It stores family metadata, provider
@@ -67,6 +69,29 @@ export function createProvisioningStore({ filePath = null, clock = Date.now, idG
     if (!record) throw new Error('session is invalid or expired');
     if (requestedFamilyId !== null && record.familyId !== id(requestedFamilyId, 'familyId')) throw new Error('session is not authorized for this family');
     return record;
+  }
+  function requireLifecycleSession(token, requestedFamilyId, scope, childId = null) {
+    const session = requireSession(token, requestedFamilyId);
+    if (!session.scopes.includes(scope)) throw new Error(`session scope is insufficient for ${scope}`);
+    if (session.childId !== null && session.childId !== childId) throw new Error('session is not authorized for this child');
+    if (childId === null && session.childId !== null) throw new Error('session is not authorized for the family');
+    return session;
+  }
+  function redactedFamily(record, sessions, childId = null) {
+    const children = childId === null ? record.children : record.children.filter(child => child.childId === childId);
+    return {
+      familyId: record.familyId,
+      status: record.status,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      parent: childId === null ? { key: record.parent.key } : null,
+      children: children.map(child => ({ childId: child.childId, destinationKey: child.destination.key })),
+      sessions: sessions.filter(session => childId === null || session.childId === childId).map(session => ({
+        sessionId: session.sessionId, childId: session.childId ?? null, scopes: [...session.scopes],
+        createdAt: session.createdAt, expiresAt: session.expiresAt, revokedAt: session.revokedAt,
+      })),
+      redaction: 'Provider identifiers, bearer-token hashes, learner content, and external provider data are excluded.',
+    };
   }
   const api = {
     provisionFamily(options) {
@@ -134,6 +159,37 @@ export function createProvisioningStore({ filePath = null, clock = Date.now, idG
       return clone({ sessionId: record.sessionId, familyId: record.familyId, childId: record.childId ?? null, scopes: record.scopes, expiresAt: record.expiresAt });
     },
     revokeSession(sessionId) { return mutate(() => { const record = state.sessions[id(sessionId, 'sessionId')]; if (!record) throw new Error('session is not found'); record.revokedAt = timestamp(clock); return { sessionId: record.sessionId, revokedAt: record.revokedAt }; }); },
+    exportFamily({ sessionToken, familyId }) {
+      const session = requireLifecycleSession(sessionToken, familyId, EXPORT_SCOPE);
+      return redactedFamily(family(session.familyId), Object.values(state.sessions).filter(candidate => candidate.familyId === session.familyId));
+    },
+    exportChild({ sessionToken, familyId, childId }) {
+      const normalizedChild = id(childId, 'childId');
+      const session = requireLifecycleSession(sessionToken, familyId, EXPORT_SCOPE, normalizedChild);
+      const record = family(session.familyId);
+      if (!record.children.some(child => child.childId === normalizedChild)) throw new Error('child is not provisioned');
+      return redactedFamily(record, Object.values(state.sessions).filter(candidate => candidate.familyId === session.familyId), normalizedChild);
+    },
+    deleteFamily({ sessionToken, familyId, confirmFamilyId, dryRun = false }) {
+      const session = requireLifecycleSession(sessionToken, familyId, DELETE_SCOPE);
+      if (confirmFamilyId !== session.familyId) throw new Error('confirmation does not match familyId');
+      const record = family(session.familyId);
+      const sessionIds = Object.values(state.sessions).filter(candidate => candidate.familyId === session.familyId).map(candidate => candidate.sessionId);
+      const result = { familyId: session.familyId, childrenRemoved: record.children.length, sessionsRemoved: sessionIds.length, providerBindingsRemoved: record.children.length + 1, dryRun: Boolean(dryRun) };
+      if (!dryRun) return mutate(() => { delete state.families[session.familyId]; for (const sessionId of sessionIds) delete state.sessions[sessionId]; return result; });
+      return result;
+    },
+    deleteChild({ sessionToken, familyId, childId, confirmChildId, dryRun = false }) {
+      const normalizedChild = id(childId, 'childId');
+      const session = requireLifecycleSession(sessionToken, familyId, DELETE_SCOPE, normalizedChild);
+      if (confirmChildId !== normalizedChild) throw new Error('confirmation does not match childId');
+      const record = family(session.familyId);
+      if (!record.children.some(child => child.childId === normalizedChild)) throw new Error('child is not provisioned');
+      const sessionIds = Object.values(state.sessions).filter(candidate => candidate.familyId === session.familyId && candidate.childId === normalizedChild).map(candidate => candidate.sessionId);
+      const result = { familyId: session.familyId, childId: normalizedChild, childrenRemoved: 1, sessionsRemoved: sessionIds.length, providerBindingsRemoved: 1, dryRun: Boolean(dryRun) };
+      if (!dryRun) return mutate(() => { record.children = record.children.filter(child => child.childId !== normalizedChild); record.updatedAt = timestamp(clock); for (const sessionId of sessionIds) delete state.sessions[sessionId]; return result; });
+      return result;
+    },
     resolveDestination(options) {
       rejectTranscriptFields(options, 'resolveDestination');
       const { sessionToken, familyId, destinationType, destinationKey } = options;

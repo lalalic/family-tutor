@@ -40,8 +40,23 @@ Discord server and ChatGPT account, support contacts, retention, deletion/export
 procedure, pricing, and the approved safety escalation path. A family may ask
 the pilot operator about deletion or export through the approved support
 contact; the operator must record only the request status and approved result,
-not a transcript copy. The current code does not provide a self-service delete
-or export command.
+not a transcript copy.
+
+The provisioning store exposes authenticated, scope-gated operator operations
+for a redacted family/child export and confirmed family/child deletion.
+Exports include Family Tutor's status, logical destination keys, and session
+metadata, but omit provider identifiers, token hashes, learner content, and
+external provider data. Deletion removes the selected Family Tutor bindings
+and session state; family deletion removes all hosted state for that family.
+A dry run and exact family/child confirmation are required before a destructive
+operation. Audit records retained by an external deployment's retention policy
+are not rewritten by this operation.
+
+These operations do not delete customer-owned ChatGPT Projects, ChatGPT
+threads, Discord messages/channels, learner memory under the private family
+runtime, or data held by external providers. The operator must separately
+confirm those customer-owned deletion steps with the family and must not claim
+that Family Tutor deleted them.
 
 See [`docs/launch-checklist.md`](launch-checklist.md) and
 [`docs/support-runbook.md`](support-runbook.md) for operational handling.
