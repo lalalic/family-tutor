@@ -16,7 +16,6 @@ if(!discordToken) throw new Error('DISCORD_BOT_TOKEN is required');
 
 const instanceDir=path.resolve(path.dirname(config.configPath),'..');
 const backend=new CodexBackend(config.codex,{instanceDir});
-const childByChannel=new Map(config.children.map(c=>[c.discordChannelId,c]));
 function agentsFile(child){ return path.resolve(path.dirname(config.configPath),'..',child.id,'AGENTS.md'); }
 function ensureAgents(child){ const file=agentsFile(child); if(fs.existsSync(file)) return; fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,`# ${child.name} Agent Context\n\n`,{mode:0o600}); }
 for(const child of config.children) ensureAgents(child);
