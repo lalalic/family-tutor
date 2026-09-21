@@ -1,4 +1,4 @@
-import { DEFAULT_BRIDGE_URL, bindChild, isChatGptUrl, projectIdFromChatGptUrl, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -12,7 +12,16 @@ let restoreTimer = null;
 let restoreFallbackTimer = null;
 
 async function settings() {
-  return chrome.storage.local.get({ bindings: {}, threadUrls: {} });
+  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '' });
+}
+
+function defaultHealth() {
+  return { state: HEALTH_STATES.DISCONNECTED, lastError: null, lastConnectedAt: null, recoveryCount: 0 };
+}
+
+async function updateHealth(patch) {
+  const current = await chrome.storage.local.get({ health: defaultHealth() });
+  await chrome.storage.local.set({ health: { ...defaultHealth(), ...current.health, ...patch } });
 }
 
 async function applyBootstrap() {
@@ -20,9 +29,11 @@ async function applyBootstrap() {
     const response = await fetch(BOOTSTRAP_URL, { cache: 'no-store' });
     if (!response.ok) return;
     const bootstrap = await response.json();
-    if (bootstrap?.bindings && typeof bootstrap.bindings === 'object') {
-      await chrome.storage.local.set({ bindings: bootstrap.bindings });
-    }
+    const update = {};
+    if (bootstrap?.bindings && typeof bootstrap.bindings === 'object') update.bindings = bootstrap.bindings;
+    if (bootstrap?.bridgeUrl) update.bridgeUrl = normalizeBridgeUrl(bootstrap.bridgeUrl);
+    if (typeof bootstrap?.bridgeToken === 'string') update.bridgeToken = bootstrap.bridgeToken;
+    if (Object.keys(update).length) await chrome.storage.local.set(update);
   } catch {
     // bootstrap.json is optional and intentionally private when used.
   }
@@ -35,7 +46,7 @@ function send(message) {
 async function reportBindings() {
   const { bindings } = await settings();
   const version = chrome.runtime.getManifest().version;
-  for (const childId of Object.keys(bindings)) send({ type: 'tab.bind', childId, version });
+  for (const childId of Object.keys(canonicalBindings(bindings))) send({ type: 'tab.bind', childId, version });
 }
 
 async function familyGroups() {
@@ -332,9 +343,10 @@ function scheduleReconnect() {
 
 async function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
-  socket = new WebSocket(DEFAULT_BRIDGE_URL);
+  const current = await settings();
+  const bridgeUrl = normalizeBridgeUrl(current.bridgeUrl || DEFAULT_BRIDGE_URL);
+  socket = new WebSocket(bridgeUrl);
   socket.onopen = async () => {
-    await reportBindings();
     clearInterval(keepAliveTimer);
     keepAliveTimer = setInterval(() => send({ type: 'extension.ping' }), 20_000);
   };
@@ -342,18 +354,27 @@ async function connect() {
     let message;
     try {
       message = JSON.parse(data);
+      if (message.type === 'bridge.auth.required') {
+        const current = await settings();
+        if (!current.bridgeToken) throw new Error('Hosted Family Tutor connection requires a family session token.');
+        send({ type: 'bridge.auth', token: current.bridgeToken });
+        return;
+      }
       if (message.type === 'bridge.ready') {
         availableChildren = Array.isArray(message.children) ? message.children.map(String) : [];
+        await reportBindings();
+        await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString() });
         return;
       }
       if (message.type !== 'turn') return;
       await handleTurn(message);
     } catch (error) {
+      await updateHealth({ state: HEALTH_STATES.ERROR, lastError: safeErrorMessage(error) });
       send({
         type: 'turn.error',
         childId: message?.childId,
         correlation: message?.correlation,
-        error: error instanceof Error ? error.message : String(error),
+        error: safeErrorMessage(error),
       });
     }
   };
@@ -361,9 +382,16 @@ async function connect() {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
     socket = null;
+    chrome.storage.local.get({ health: defaultHealth() }).then(({ health }) => updateHealth({
+      state: HEALTH_STATES.RECOVERING,
+      recoveryCount: Number(health?.recoveryCount || 0) + 1,
+    })).catch(() => {});
     scheduleReconnect();
   };
-  socket.onerror = () => socket?.close();
+  socket.onerror = () => {
+    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The Family Tutor bridge is unavailable.' }).catch(() => {});
+    socket?.close();
+  };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -384,7 +412,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.type === 'turn.error') {
-    send(message);
+    send({ ...message, error: safeErrorMessage(message.error) });
     return;
   }
 
@@ -401,12 +429,29 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
       }
       respond({ ok: true, base64: btoa(binary), mimeType: response.headers.get('content-type') || message.mimeType || 'application/octet-stream' });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
   if (message?.type === 'settings.get') {
-    settings().then(({ bindings, threadUrls }) => respond({ bindings, threadUrls, children: availableChildren })).catch((error) => respond({ error: error.message }));
+    settings().then(({ bindings, threadUrls, health, bridgeUrl, bridgeToken }) => respond({
+      bindings: canonicalBindings(bindings), threadUrls, health, bridgeUrl, tokenConfigured: Boolean(bridgeToken),
+      version: chrome.runtime.getManifest().version, children: availableChildren,
+    })).catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'connection.configure') {
+    (async () => {
+      const bridgeUrl = normalizeBridgeUrl(message.bridgeUrl || DEFAULT_BRIDGE_URL);
+      const bridgeToken = String(message.bridgeToken || '').trim();
+      if (bridgeUrl.startsWith('wss://') && !bridgeToken) throw new Error('Hosted Family Tutor requires a family session token.');
+      await chrome.storage.local.set({ bridgeUrl, bridgeToken });
+      if (socket) { try { socket.close(); } catch {} socket = null; }
+      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null });
+      await connect();
+      respond({ ok: true, bridgeUrl, tokenConfigured: Boolean(bridgeToken) });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
@@ -420,12 +465,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!availableChildren.includes(childId)) throw new Error('unknown child');
       const current = await settings();
       const bindings = bindChild(current.bindings, childId, projectId);
-      const threadUrls = { ...current.threadUrls, [childId]: tab.url };
+      const threadUrls = canonicalThreadUrls(bindings, { ...current.threadUrls, [childId]: tab.url });
       await chrome.storage.local.set({ bindings, threadUrls });
       await reconcileFamilyTabs({ [childId]: tab.id });
       await reportBindings();
       respond({ ok: true, bindings, projectId, threadUrl: tab.url });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 
@@ -436,10 +481,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const nextThreadUrls = { ...threadUrls };
       delete next[String(message.childId || '')];
       delete nextThreadUrls[String(message.childId || '')];
-      await chrome.storage.local.set({ bindings: next, threadUrls: nextThreadUrls });
+      await chrome.storage.local.set({ bindings: next, threadUrls: canonicalThreadUrls(next, nextThreadUrls) });
       await reconcileFamilyTabs();
       respond({ ok: true, bindings: next });
-    })().catch((error) => respond({ error: error.message }));
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 });

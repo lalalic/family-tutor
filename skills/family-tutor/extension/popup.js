@@ -3,11 +3,24 @@ import { projectIdFromChatGptUrl } from './protocol.mjs';
 const project = document.querySelector('#project');
 const children = document.querySelector('#children');
 const status = document.querySelector('#status');
+const health = document.querySelector('#health');
+const bridgeUrl = document.querySelector('#bridge-url');
+const bridgeToken = document.querySelector('#bridge-token');
+const saveConnection = document.querySelector('#save-connection');
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const projectId = projectIdFromChatGptUrl(tab?.url);
 const current = await chrome.runtime.sendMessage({ type: 'settings.get' });
+bridgeUrl.value = current.bridgeUrl || '';
+bridgeToken.placeholder = current.tokenConfigured ? 'Family session token configured' : 'Family session token';
 project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${projectId}` : 'Open a ChatGPT Project first.';
+
+function renderHealth(current) {
+  const state = current.health?.state || 'unknown';
+  const detail = current.health?.lastError ? `\n${current.health.lastError}` : '';
+  const recoveryCount = Number(current.health?.recoveryCount || 0);
+  health.textContent = `Extension ${current.version || 'unknown'} · bridge ${state} · recoveries ${recoveryCount}${detail}`;
+}
 
 function render(bindings) {
   children.replaceChildren();
@@ -50,3 +63,18 @@ function render(bindings) {
 }
 
 render(current.bindings || {});
+renderHealth(current);
+
+
+saveConnection.addEventListener('click', async () => {
+  const result = await chrome.runtime.sendMessage({
+    type: 'connection.configure',
+    bridgeUrl: bridgeUrl.value.trim(),
+    bridgeToken: bridgeToken.value.trim(),
+  });
+  status.textContent = result.error || 'Family Tutor connection updated.';
+  if (!result.error) {
+    bridgeToken.value = '';
+    bridgeToken.placeholder = result.tokenConfigured ? 'Family session token configured' : 'Family session token';
+  }
+});

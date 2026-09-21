@@ -1,7 +1,14 @@
 const CHATGPT_HOSTS = new Set(['chatgpt.com', 'chat.openai.com']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const HOSTED_BRIDGE_HOSTS = new Set(['family-tutor.qili2.com']);
 
 export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:43117/ws';
+export const HEALTH_STATES = Object.freeze({
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected',
+  RECOVERING: 'recovering',
+  ERROR: 'error',
+});
 
 export function isChatGptUrl(value) {
   try {
@@ -25,8 +32,10 @@ export function projectIdFromChatGptUrl(value) {
 
 export function normalizeBridgeUrl(value = DEFAULT_BRIDGE_URL) {
   const url = new URL(String(value || DEFAULT_BRIDGE_URL));
-  if (!['ws:', 'wss:'].includes(url.protocol) || !LOOPBACK_HOSTS.has(url.hostname)) {
-    throw new Error('bridge URL must be a loopback WebSocket URL');
+  const local = url.protocol === 'ws:' && LOOPBACK_HOSTS.has(url.hostname);
+  const hosted = url.protocol === 'wss:' && HOSTED_BRIDGE_HOSTS.has(url.hostname);
+  if ((!local && !hosted) || !['/ws', '/extension'].includes(url.pathname)) {
+    throw new Error('bridge URL must be local ws://.../ws or the hosted Family Tutor wss://.../extension endpoint');
   }
   return url.toString();
 }
@@ -42,7 +51,39 @@ export function bindChild(bindings, childId, projectId) {
     if (existingChild !== id && existingProject !== project) next[existingChild] = existingProject;
   }
   next[id] = project;
-  return next;
+  return canonicalBindings(next);
+}
+
+export function canonicalBindings(bindings) {
+  return Object.fromEntries(
+    Object.entries(bindings || {})
+      .map(([childId, projectId]) => [String(childId).trim(), String(projectId).trim()])
+      .filter(([childId, projectId]) => childId && /^g-p-[A-Za-z0-9_-]+$/.test(projectId))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+export function canonicalThreadUrls(bindings, threadUrls) {
+  const canonical = canonicalBindings(bindings);
+  return Object.fromEntries(
+    Object.entries(threadUrls || {})
+      .map(([childId, threadUrl]) => [String(childId).trim(), String(threadUrl || '').trim()])
+      .filter(([childId, threadUrl]) => (
+        canonical[childId]
+        && threadUrl
+        && projectIdFromChatGptUrl(threadUrl) === canonical[childId]
+      ))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+export function safeErrorMessage(error, fallback = 'The extension could not complete the operation.') {
+  const raw = String(error?.message || error || '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (!raw) return fallback;
+  return raw
+    .replace(/(?:wss?|https?):\/\/[^\s)]+/gi, '[endpoint]')
+    .replace(/\b(token|authorization|secret|password)\s*[:=]\s*[^\s,;]+/gi, (_match, name) => `${name}=[redacted]`)
+    .slice(0, 240);
 }
 
 export function validateTurn(message) {

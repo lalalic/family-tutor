@@ -1,22 +1,62 @@
-# Family Tutor E2E verification
+# Family Tutor end-to-end verification
 
-The release gate exercises the real Discord path through the single PM2-resident `family-tutor-orchestrator`, not only a service status check or a direct Codex probe.
+The commercial release gate validates the same hosted product composition used
+in production. Local service status or isolated package tests are not enough.
 
-## Preconditions
+## Automated product gate
 
-- The instance has `codex.backend: codex`, child Discord channel ids, and a parent channel id.
-- The host has an authenticated `codex` CLI and a Discord bot token.
-- Each child has a distinct child channel and durable `AGENTS.md` under the ignored instance directory.
+Run:
 
-## Critical checks
+```bash
+npm run check:product
+```
 
-1. Send distinct probe messages to each child channel close together. Verify each reply returns to its originating channel and that one slow child does not block the other.
-2. Confirm the child context is isolated: each child receives only its own durable memory and its own persistent Codex thread.
-3. Exercise voice and image messages. Verify local transcription and image attachment handling, with a useful error if either fails.
-4. Use `!goal`, `!focus`, and `!ask` from the configured parent channel. Verify the command targets exactly the named child and the parent receives concise learning telemetry rather than a raw transcript.
-5. Have a tutor response emit a complete `<FAMILY_TUTOR_MEMORY>` block and `<FAMILY_TUTOR_ROLLOVER/>`. Verify memory is written before `.codex-thread.json` is removed and that the next turn creates a fresh thread.
-6. Inspect the instance: no transcript files or browser/project/tab bindings are created.
+The synthetic gate provisions two families with overlapping logical child
+names, starts the hosted process, authenticates two extension WebSocket
+sessions, completes Project/onboarding readiness, and verifies the full turn:
 
-## Evidence
+```text
+trusted Discord ingress
+  -> exact family/child extension socket
+  -> ChatGPT Project turn payload
+  -> hosted MCP reply_to_discord
+  -> exact originating Discord channel
+```
 
-Capture Discord message ids/channels, service logs, the child `AGENTS.md` diff, and the thread-state transition in the ignored run directory. Do not commit those artifacts or any credentials.
+It also verifies logical MCP outbound delivery, cross-family rejection, raw
+provider-id rejection, export redaction, session revocation, deletion isolation,
+and content-free health/readiness endpoints.
+
+## Real pilot acceptance
+
+Before enabling a real family:
+
+1. Provision the family and each private child destination through the trusted
+   operator/onboarding path.
+2. Connect ChatGPT Developer Mode to the hosted `/mcp` endpoint with the scoped
+   family session.
+3. Configure extension 2.3.0 or newer with
+   `wss://family-tutor.qili2.com/extension` and the family session token.
+4. Bind each child to a distinct ChatGPT Project/thread and confirm extension
+   health shows every expected child connected.
+5. Send distinct Discord probe messages to two child channels close together.
+   Verify each turn appears only in its assigned Project and each MCP reply
+   returns to the exact originating Discord channel/message.
+6. Attempt a wrong-family correlation reply and a raw-provider MCP target; both
+   must be rejected without provider identifiers in the response/logs.
+7. Confirm the parent destination receives only approved concise learning
+   telemetry, not routine child transcript mirroring.
+8. Exercise export and dry-run deletion with an operator-scoped session, then
+   confirm the export contains logical metadata only.
+9. Verify `GET /healthz` and `GET /readyz` are healthy and that logs contain no
+   child content, bearer tokens, provider ids, or transcript bodies.
+
+Capture only message ids, logical family/child ids, request/correlation ids,
+release versions, and pass/fail evidence. Never commit credentials or learner
+content.
+
+## Local dogfood compatibility
+
+The existing PM2/local tutor runtime can still be tested with its local Discord
+and loopback bridge workflow. That test is useful for regression coverage but is
+not evidence that the hosted commercial path works for an external family.

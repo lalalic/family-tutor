@@ -1,0 +1,12 @@
+{
+  "name": "@family-tutor/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "check": "node --check src/routing.mjs && node --check src/storage.mjs && node --test test/*.test.mjs"
+  }
+}
