@@ -2,6 +2,12 @@
 
 Family Tutor is the Neo monorepo project surface for a parent-visible Discord tutoring workflow. Reusable tutoring/runtime behavior lives in `../skills/family-tutor/`; this project contains public project documentation and architecture only.
 
+The commercial foundation is provider-neutral: shared services must authenticate
+a family, resolve logical child/parent destinations, and only then touch provider
+IDs. See [`docs/tenant-routing.md`](docs/tenant-routing.md) and the
+dependency-free [`@family-tutor/core`](packages/core/) route index. Run `npm ci`
+in each runtime package, then `npm run check` at the repository root.
+
 ## Create a private/local instance
 
 All real family configuration, learner details, Discord identifiers, and durable learner memory belong under an ignored run directory:
