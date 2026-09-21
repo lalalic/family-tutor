@@ -97,13 +97,16 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
   const registry = new Map(tools.map(tool => [tool.name, Object.freeze({ entitlement: 'core', scopes: ['tutor'], ...tool })]));
   const writeAudit = event => { try { audit(safeAudit(event)); } catch { /* audit failures do not leak details to callers */ } };
   const allowed = (familyId, tool) => tool.entitlement === 'core' || (Array.isArray(entitlements[familyId]) && entitlements[familyId].includes(tool.entitlement));
+  const authenticate = token => {
+    try { return token ? store.authenticateSession(token) : null; } catch { return null; }
+  };
 
   async function callTool(name, args, headers = {}, requestId = cryptoRandomId()) {
     const token = bearer(headers);
     const base = { at: new Date(clock()).toISOString(), requestId, action: 'tools/call', tool: name };
     let session;
     try {
-      session = store.authenticateSession(token);
+      session = authenticate(token);
       if (!session) throw new Error('authentication failed');
       const tool = registry.get(name);
       if (!tool) throw new Error('unknown tool');
@@ -138,7 +141,7 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
       if (request.method === 'ping') return { jsonrpc: '2.0', id, result: {} };
       if (request.method === 'tools/list') {
         const token = bearer(headers);
-        const session = token ? store.authenticateSession(token) : null;
+        const session = authenticate(token);
         if (!session) return { jsonrpc: '2.0', id, error: { code: -32001, message: 'authentication required' } };
         const visible = [...registry.values()].filter(tool => allowed(session.familyId, tool) && tool.scopes.every(scope => session.scopes.includes(scope))).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
         return { jsonrpc: '2.0', id, result: { tools: visible } };

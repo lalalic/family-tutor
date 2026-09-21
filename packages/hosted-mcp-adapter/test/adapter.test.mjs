@@ -52,6 +52,47 @@ test('requires authentication even for tool discovery', async () => {
   assert.equal(response.error.code, -32001);
 });
 
+test('normalizes malformed tool arguments without exposing argument details', async () => {
+  const { store, auth } = setup();
+  const audits = [];
+  const adapter = createHostedMcpAdapter({ store, audit: event => audits.push(event) });
+  const response = await adapter.handle({
+    jsonrpc: '2.0', id: 8, method: 'tools/call',
+    params: { name: 'send_tutor_message', arguments: null },
+  }, { headers: auth });
+  assert.deepEqual(response.result, { content: [{ type: 'text', text: '{"error":"request rejected"}' }], isError: true });
+  assert.equal(audits[0].reason, 'request rejected');
+});
+
+test('turns handler exceptions into a stable response and sanitized audit reason', async () => {
+  const { store, auth } = setup();
+  const audits = [];
+  const adapter = createHostedMcpAdapter({
+    store,
+    audit: event => audits.push(event),
+    handlers: { send_tutor_message: () => { throw new Error('provider token=secret-value'); } },
+  });
+  const response = await adapter.handle({
+    jsonrpc: '2.0', id: 9, method: 'tools/call',
+    params: { name: 'send_tutor_message', arguments: { destination: { type: 'child', key: 'alex' }, text: 'hello' } },
+  }, { headers: auth });
+  assert.equal(response.result.content[0].text, '{"error":"request rejected"}');
+  assert.equal(audits[0].reason, 'request rejected');
+  assert.ok(!JSON.stringify(response).includes('secret-value'));
+  assert.ok(!JSON.stringify(audits).includes('secret-value'));
+});
+
+test('treats malformed or throwing authentication stores as authentication failures', async () => {
+  const store = {
+    authenticateSession: () => { throw new Error('database password=secret'); },
+    resolveDestination: () => { throw new Error('unreachable'); },
+  };
+  const adapter = createHostedMcpAdapter({ store });
+  const response = await adapter.handle({ jsonrpc: '2.0', id: 10, method: 'tools/list' }, { headers: { authorization: 'Bearer malformed' } });
+  assert.deepEqual(response.error, { code: -32001, message: 'authentication required' });
+  assert.ok(!JSON.stringify(response).includes('secret'));
+});
+
 test('audits rejection and invokes rate-limit hook after authentication', async () => {
   const { store, auth } = setup();
   const audits = []; const limits = [];
