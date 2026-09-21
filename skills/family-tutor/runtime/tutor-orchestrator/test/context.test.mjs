@@ -10,7 +10,7 @@ function envelope(prompt) {
 }
 
 test('kid and parent turns use typed data-only context envelopes',()=>{
-  assert.deepEqual(envelope(buildKidContext({childId:'sammy',text:'help'})),{type:'kid',data:{child:'sammy',message:'help'}});
+  assert.deepEqual(envelope(buildKidContext({childId:'sammy',text:'help'})),{type:'kid',data:{childId:'sammy',studentMessage:'help'}});
   const parent=envelope(buildParentContextPrompt({child:{id:'sammy',name:'Sammy'},command:'!remind',value:'review fractions',authorId:'raw-author',messageId:'raw-message'}));
   assert.deepEqual(parent,{type:'parent',data:{targetChild:'sammy',request:'reminder',message:'review fractions'}});
   assert.doesNotMatch(JSON.stringify(parent),/raw-author|raw-message/);

@@ -10,6 +10,13 @@ function safeChildren(store, familyId) {
   return (store.snapshot().families?.[familyId]?.children || []).map(child => child.childId).sort();
 }
 
+function kidContext(childId, correlationId, text) {
+  return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({
+    type: 'kid',
+    data: { childId, correlationId, studentMessage: String(text || '') },
+  })}\n</FAMILY_TUTOR_CONTEXT>`;
+}
+
 export function createHostedExtensionRelay({ store, provider, path = '/extension', turnTtlMs = 15 * 60 * 1000, clock = Date.now } = {}) {
   if (!store?.authenticateSession) throw new Error('store is required');
   if (!provider?.send) throw new Error('provider.send is required');
@@ -51,14 +58,7 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
     return {
       type: 'turn',
       childId: turn.childId,
-      prompt: [
-        turn.text,
-        '',
-        '[Family Tutor Discord delivery]',
-        `Correlation ID: ${turn.correlationId}`,
-        'Use the Family Tutor MCP tool reply_to_discord with this correlationId.',
-        'You may send a short progress reply with final=false, then the final student-facing reply with final=true.',
-      ].join('\n'),
+      prompt: kidContext(turn.childId, turn.correlationId, turn.text),
       correlation: { correlationId: turn.correlationId },
       attachments: [],
     };

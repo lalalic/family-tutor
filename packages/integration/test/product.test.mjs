@@ -89,7 +89,12 @@ test('one hosted product composes Discord ingress, extension routing, ChatGPT MC
     const turn = await extensionA.nextTurn();
     assert.equal(turn.childId, 'alex');
     assert.equal(turn.correlation.correlationId, inbound.correlationId);
-    assert.match(turn.prompt, /Explain fractions/);
+    assert.match(turn.prompt, /<FAMILY_TUTOR_CONTEXT>/);
+    assert.match(turn.prompt, /\"type\":\"kid\"/);
+    assert.match(turn.prompt, /\"childId\":\"alex\"/);
+    assert.match(turn.prompt, /\"correlationId\":\"/);
+    assert.match(turn.prompt, /\"studentMessage\":\"Explain fractions\"/);
+    assert.doesNotMatch(turn.prompt, /Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
 
     const wrongFamilyReply = await product.mcp.callTool('reply_to_discord', {
       correlationId: inbound.correlationId,

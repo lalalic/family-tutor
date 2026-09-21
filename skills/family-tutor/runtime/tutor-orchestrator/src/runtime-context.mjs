@@ -9,7 +9,7 @@ export function runtimeContext(type, data) {
 }
 
 export function buildKidContext({ childId, text }) {
-  return runtimeContext('kid', { child: childId, message: String(text || '') });
+  return runtimeContext('kid', { childId, studentMessage: String(text || '') });
 }
 
 export function buildParentContext({ childId, requestType, message }) {
