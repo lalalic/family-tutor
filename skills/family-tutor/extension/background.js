@@ -437,12 +437,15 @@ async function connect() {
     await chrome.storage.local.set({ bridgeToken });
     current = { ...current, bridgeToken };
   }
-  socket = new WebSocket(bridgeUrl);
-  socket.onopen = async () => {
+  const ws = new WebSocket(bridgeUrl);
+  socket = ws;
+  ws.onopen = async () => {
+    if (socket !== ws) return;
     clearInterval(keepAliveTimer);
     keepAliveTimer = setInterval(() => send({ type: 'extension.ping' }), 20_000);
   };
-  socket.onmessage = async ({ data }) => {
+  ws.onmessage = async ({ data }) => {
+    if (socket !== ws) return;
     let message;
     try {
       message = JSON.parse(data);
@@ -455,7 +458,7 @@ async function connect() {
       if (message.type === 'bridge.ready') {
         availableChildren = Array.isArray(message.children) ? message.children.map(String) : [];
         await reportBindings();
-        await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString() });
+        await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString(), recoveryCount: 0 });
         return;
       }
       if (message.type !== 'turn') return;
@@ -470,7 +473,8 @@ async function connect() {
       });
     }
   };
-  socket.onclose = () => {
+  ws.onclose = () => {
+    if (socket !== ws) return;
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
     socket = null;
@@ -480,10 +484,22 @@ async function connect() {
     })).catch(() => {});
     scheduleReconnect();
   };
-  socket.onerror = () => {
+  ws.onerror = () => {
+    if (socket !== ws) return;
     updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The Family Tutor bridge is unavailable.' }).catch(() => {});
-    socket?.close();
+    ws.close();
   };
+}
+
+async function waitForBridgeConnected(timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { health } = await chrome.storage.local.get({ health: defaultHealth() });
+    if (health?.state === HEALTH_STATES.CONNECTED) return;
+    if (health?.state === HEALTH_STATES.ERROR && health?.lastError) throw new Error(health.lastError);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Family Tutor authorized, but the bridge did not become connected.');
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -538,8 +554,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const session = await authorizeExtensionSession();
       await chrome.storage.local.set({ bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken });
       if (socket) { try { socket.close(); } catch {} socket = null; }
-      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null });
+      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null, recoveryCount: 0 });
       await connect();
+      await waitForBridgeConnected();
       respond({ ok: true, bridgeUrl: DEFAULT_BRIDGE_URL, tokenConfigured: true });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
