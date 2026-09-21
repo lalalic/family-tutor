@@ -146,3 +146,29 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     assert.deepEqual(listedBody.result.tools[0].securitySchemes,[{type:'oauth2',scopes:['tutor']}]);
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('hosted websocket requires family token before exposing bridge bindings',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-hosted-ws-'));
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{}}).start();
+  let socket;
+  try{
+    socket=new WebSocket(bridge.websocketEndpoint(),{
+      origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm',
+      headers:{Host:'family-tutor.qili2.com'},
+    });
+    const first=await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error('hosted auth prompt timeout')),1500);
+      socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});
+      socket.once('error',reject);
+    });
+    assert.equal(first.type,'bridge.auth.required');
+    socket.send(JSON.stringify({type:'bridge.auth',token:'hosted-family-session-token-1234567890'}));
+    const ready=await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error('hosted ready timeout')),1500);
+      socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});
+      socket.once('error',reject);
+    });
+    assert.equal(ready.type,'bridge.ready');
+    assert.deepEqual(ready.children,['kid1']);
+  }finally{socket?.close(); await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
+});

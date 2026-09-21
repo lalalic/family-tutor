@@ -27,7 +27,7 @@ Families authenticate to ChatGPT themselves. The extension stores only the
 logical child-to-Project binding and the selected thread URL in Chrome local
 storage. It does not ask the family for a ChatGPT password, bridge token, or
 Discord channel ID. For hosted customers the extension connects outbound to
-`wss://family-tutor.qili2.com/extension` and authenticates after connection with
+`wss://family-tutor.qili2.com/ws` and authenticates after connection with
 a scoped family session token stored in Chrome extension storage. The token is
 never placed in the WebSocket URL. The legacy loopback bridge remains supported
 for local dogfood only.
@@ -67,4 +67,4 @@ creates a new extension identity and can strand existing bindings.
 
 ## Hosted connection
 
-Extension 2.3.0 adds hosted bridge configuration in the popup. Enter the hosted `wss://family-tutor.qili2.com/extension` endpoint and the family session token issued during onboarding. A hosted connection is not considered ready until the server authenticates the session and every expected child binding has reported `tab.bind`.
+Extension 2.3.1 uses the hosted bridge by default in the popup. Enter the hosted `wss://family-tutor.qili2.com/ws` endpoint and the family session token issued during onboarding. A hosted connection is not considered ready until the server authenticates the session and every expected child binding has reported `tab.bind`.

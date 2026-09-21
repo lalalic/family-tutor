@@ -2,7 +2,7 @@ const CHATGPT_HOSTS = new Set(['chatgpt.com', 'chat.openai.com']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const HOSTED_BRIDGE_HOSTS = new Set(['family-tutor.qili2.com']);
 
-export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:43117/ws';
+export const DEFAULT_BRIDGE_URL = 'wss://family-tutor.qili2.com/ws';
 export const HEALTH_STATES = Object.freeze({
   CONNECTED: 'connected',
   DISCONNECTED: 'disconnected',
@@ -35,7 +35,7 @@ export function normalizeBridgeUrl(value = DEFAULT_BRIDGE_URL) {
   const local = url.protocol === 'ws:' && LOOPBACK_HOSTS.has(url.hostname);
   const hosted = url.protocol === 'wss:' && HOSTED_BRIDGE_HOSTS.has(url.hostname);
   if ((!local && !hosted) || !['/ws', '/extension'].includes(url.pathname)) {
-    throw new Error('bridge URL must be local ws://.../ws or the hosted Family Tutor wss://.../extension endpoint');
+    throw new Error('bridge URL must be local ws://.../ws or the hosted Family Tutor wss://family-tutor.qili2.com/ws endpoint');
   }
   return url.toString();
 }

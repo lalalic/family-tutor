@@ -88,7 +88,7 @@ export class BrowserBridge {
     }));
     this.wsServer=new WebSocketServer({noServer:true});
     this.server.on('upgrade',(req,socket,head)=>this.#upgrade(req,socket,head));
-    this.wsServer.on('connection',socket=>this.#connection(socket));
+    this.wsServer.on('connection',(socket,req)=>this.#connection(socket,req));
     await new Promise((resolve,reject)=>{
       this.server.once('error',reject);
       this.server.listen(this.port,this.host,resolve);
@@ -346,12 +346,25 @@ export class BrowserBridge {
     this.wsServer.handleUpgrade(req,socket,head,client=>this.wsServer.emit('connection',client,req));
   }
 
-  #connection(socket){
+  #connection(socket,req){
     const bindings=new Set();
-    socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
+    const host=String(req?.headers?.host||'').split(':')[0].toLowerCase();
+    const hosted=host==='family-tutor.qili2.com';
+    let authenticated=!hosted;
+    if(hosted) socket.send(JSON.stringify({type:'bridge.auth.required'}));
+    else socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
     socket.on('message',raw=>{
       let message;
       try{ message=JSON.parse(raw.toString()); }catch{ return; }
+      if(!authenticated){
+        if(message?.type==='bridge.auth'&&timingSafeEqualText(message.token,this.token)){
+          authenticated=true;
+          socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
+          return;
+        }
+        socket.close(4401,'authentication required');
+        return;
+      }
       if(message?.type==='extension.ping'||message?.type==='turn.ack') return;
       if(message?.type==='tab.bind'){
         const childId=String(message.childId||'').trim();
