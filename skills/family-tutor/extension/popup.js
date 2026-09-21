@@ -13,7 +13,8 @@ project.textContent = projectId ? `${tab?.title || 'ChatGPT Project'}\n${project
 function renderHealth(current) {
   const state = current.health?.state || 'unknown';
   const detail = current.health?.lastError ? `\n${current.health.lastError}` : '';
-  health.textContent = `Extension ${current.version || 'unknown'} · bridge ${state}${detail}`;
+  const recoveryCount = Number(current.health?.recoveryCount || 0);
+  health.textContent = `Extension ${current.version || 'unknown'} · bridge ${state} · recoveries ${recoveryCount}${detail}`;
 }
 
 function render(bindings) {

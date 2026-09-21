@@ -39,8 +39,10 @@ On startup, the service worker reconstructs the group from persisted bindings.
 It reuses an exact saved thread when possible, otherwise a matching Project
 tab, and only then opens the Project. A content-script failure reloads and
 retries the same tab; it never deletes the selected tab. The popup displays the
-extension version, bridge state, and a short sanitized error when recovery is
-in progress or has failed.
+extension version, bridge state, recovery count, and a short sanitized error
+when recovery is in progress or has failed. Errors sent back to the local
+bridge are sanitized too; support diagnostics must never include credentials,
+tokens, or full browser URLs.
 
 If the bridge is unavailable, start the Family Tutor runtime and wait for the
 popup to move from `recovering` to `connected`. If a single Project tab is
