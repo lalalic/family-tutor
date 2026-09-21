@@ -132,7 +132,6 @@ async function submitTurn(message) {
       childId: message.childId,
       correlation: message.correlation,
       threadUrl: location.href,
-      rotated: message.rotateThread === true,
     });
     return turn;
   } finally {

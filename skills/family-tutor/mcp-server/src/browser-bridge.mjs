@@ -371,7 +371,6 @@ export class BrowserBridge {
       prompt:contextWithCorrelation(turn.text,turn.correlationId),
       correlation:{correlationId:turn.correlationId},
       attachments:turn.attachments.map(file=>({...file,token:this.token})),
-      rotateThread:this.rotationPending.has(turn.childId),
     };
   }
 
@@ -443,11 +442,12 @@ export class BrowserBridge {
         }).catch(error=>socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:String(error?.message||'Could not delete kid.')})));
         return;
       }
-      if(message?.type==='turn.ack'){
+      if(message?.type==='thread.rotated'){
         const childId=String(message.childId||'').trim();
-        if(message.rotated===true&&this.rotationPending.has(childId)) this.rotationPending.delete(childId);
+        if(this.rotationPending.has(childId)) this.rotationPending.delete(childId);
         return;
       }
+      if(message?.type==='turn.ack') return;
       if(message?.type==='extension.ping') return;
       if(message?.type==='tab.bind'){
         const childId=String(message.childId||'').trim();
@@ -499,8 +499,11 @@ export class BrowserBridge {
           const correlationId=String(params.arguments?.correlationId||'');
           const state=this.correlations.get(correlationId);
           if(!state||this.inFlight.get(state.childId)!==correlationId) throw new Error('correlation is not active');
+          const socket=this.childSockets.get(state.childId);
+          if(!socket||socket.readyState!==WebSocket.OPEN) throw new Error('Family Tutor extension is not connected for child');
           this.rotationPending.set(state.childId,{requestedAt:new Date().toISOString(),reason:String(params.arguments?.reason||'context_long').slice(0,200)});
-          return {jsonrpc:'2.0',id,result:textResult({ok:true,scheduled:true,appliesTo:'next_turn'})};
+          socket.send(JSON.stringify({type:'thread.rotate',childId:state.childId,correlation:{correlationId},reason:String(params.arguments?.reason||'context_long').slice(0,200)}));
+          return {jsonrpc:'2.0',id,result:textResult({ok:true,requested:true})};
         }
         return {jsonrpc:'2.0',id,result:textResult({error:'unknown tool'},true)};
       }catch(error){return {jsonrpc:'2.0',id,result:textResult({error:String(error?.message||error)},true)};}

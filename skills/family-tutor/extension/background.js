@@ -419,24 +419,27 @@ async function resolveProjectTab(projectId) {
   )[0] || null;
 }
 
+async function rotateActiveThread(childId) {
+  const current = await settings();
+  const projectId = current.bindings[childId];
+  if (!projectId) throw new Error(`no ChatGPT project is assigned for child ${childId}`);
+  await reconcileFamilyTabs();
+  let tab = await resolveProjectTab(projectId);
+  if (!Number.isInteger(tab?.id)) tab = await createProjectTab(projectId);
+  tab = await putTabInFamilyGroup(tab.id);
+  await chrome.tabs.update(tab.id, { url: `https://chatgpt.com/g/${projectId}/project` });
+  await waitForProjectTab(tab.id, projectId, 30000);
+  const nextThreadUrls = { ...current.threadUrls };
+  delete nextThreadUrls[childId];
+  await chrome.storage.local.set({ threadUrls: nextThreadUrls });
+  return tab;
+}
+
 async function handleTurn(raw) {
   const turn = validateTurn(raw);
   let { bindings, threadUrls } = await settings();
   const projectId = bindings[turn.childId];
   if (!projectId) throw new Error(`no ChatGPT project is assigned for child ${turn.childId}`);
-
-  if (turn.rotateThread === true) {
-    const current = await settings();
-    const nextThreadUrls = { ...current.threadUrls };
-    delete nextThreadUrls[turn.childId];
-    await chrome.storage.local.set({ threadUrls: nextThreadUrls });
-    threadUrls = nextThreadUrls;
-    const existing = await resolveProjectTab(projectId);
-    if (Number.isInteger(existing?.id)) {
-      await chrome.tabs.update(existing.id, { url: `https://chatgpt.com/g/${projectId}/project` });
-      await waitForProjectTab(existing.id, projectId, 30000);
-    }
-  }
 
   await reconcileFamilyTabs({}, { allowCreate: false });
   const savedThreadUrl = threadUrls[turn.childId];
@@ -547,6 +550,11 @@ async function connect() {
         if (message.ok) pending.resolve(message); else pending.reject(new Error(message.error || 'Family Tutor could not update the kid.'));
         return;
       }
+      if (message.type === 'thread.rotate') {
+        await rotateActiveThread(String(message.childId || '').trim());
+        send({ type: 'thread.rotated', childId: message.childId, correlation: message.correlation });
+        return;
+      }
       if (message.type !== 'turn') return;
       await handleTurn(message);
     } catch (error) {
@@ -600,7 +608,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           threadUrls: { ...current.threadUrls, [childId]: threadUrl },
         });
       }
-      send({ ...message, rotated: message.rotated === true });
+      send(message);
     })().catch(() => send(message));
     return;
   }

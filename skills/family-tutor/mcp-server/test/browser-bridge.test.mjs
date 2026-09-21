@@ -291,7 +291,7 @@ test('extension can add and delete kids while child display names stay separate 
 });
 
 
-test('request_new_thread schedules rotation for the next turn and clears only after rotated ack',async()=>{
+test('request_new_thread immediately tells the bound extension to rotate',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-rotate-'));
   const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{}}).start();
   let socket;
@@ -299,34 +299,19 @@ test('request_new_thread schedules rotation for the next turn and clears only af
     const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
     socket=new WebSocket(`${bridge.websocketEndpoint()}?token=${token}`);
     await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
-    socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'2.6.0'}));
-    const nextTurn=()=>new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>reject(new Error('turn timeout')),1500);
-      const onMessage=data=>{const value=JSON.parse(data.toString());if(value.type!=='turn')return;clearTimeout(timer);socket.off('message',onMessage);resolve(value);};
-      socket.on('message',onMessage);
-    });
-    const firstMessage=nextTurn();
-    const firstPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"one"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
-    const first=await firstMessage;
-    assert.equal(first.rotateThread,false);
-    const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'request_new_thread',arguments:{correlationId:first.correlation.correlationId,reason:'context long'}}});
-    assert.match((await requested.json()).result.content[0].text,/"scheduled":true/);
-    await bridge.reply(first.correlation.correlationId,'done');
-    await firstPromise;
-
-    const secondMessage=nextTurn();
-    const secondPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"two"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m2'}});
-    const second=await secondMessage;
-    assert.equal(second.rotateThread,true);
-    socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:second.correlation,rotated:true}));
-    await bridge.reply(second.correlation.correlationId,'done2');
-    await secondPromise;
-
-    const thirdMessage=nextTurn();
-    const thirdPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"three"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m3'}});
-    const third=await thirdMessage;
-    assert.equal(third.rotateThread,false);
-    await bridge.reply(third.correlation.correlationId,'done3');
-    await thirdPromise;
+    socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'2.6.1'}));
+    const nextType=(type)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`${type} timeout`)),1500);const onMessage=data=>{const value=JSON.parse(data.toString());if(value.type!==type)return;clearTimeout(timer);socket.off('message',onMessage);resolve(value);};socket.on('message',onMessage);});
+    const turnMessage=nextType('turn');
+    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"one"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const turn=await turnMessage;
+    const rotateMessage=nextType('thread.rotate');
+    const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'request_new_thread',arguments:{correlationId:turn.correlation.correlationId,reason:'context long'}}});
+    assert.match((await requested.json()).result.content[0].text,/"requested":true/);
+    const rotate=await rotateMessage;
+    assert.equal(rotate.childId,'kid1');
+    assert.equal(rotate.correlation.correlationId,turn.correlation.correlationId);
+    socket.send(JSON.stringify({type:'thread.rotated',childId:'kid1',correlation:rotate.correlation}));
+    await bridge.reply(turn.correlation.correlationId,'done');
+    await turnPromise;
   }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
