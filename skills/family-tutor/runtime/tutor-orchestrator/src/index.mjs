@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { loadConfig } from './config.mjs';
 import { CodexBackend } from './backends/codex.mjs';
 import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
@@ -18,6 +18,41 @@ const instanceDir=path.resolve(path.dirname(config.configPath),'..');
 const backend=new CodexBackend(config.codex,{instanceDir});
 function agentsFile(child){ return path.resolve(path.dirname(config.configPath),'..',child.id,'AGENTS.md'); }
 function ensureAgents(child){ const file=agentsFile(child); if(fs.existsSync(file)) return; fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,`# ${child.name} Agent Context\n\n`,{mode:0o600}); }
+function childIdFromName(name){
+  return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+}
+function persistConfig(){
+  const serializable={...config};
+  delete serializable.configPath;
+  const tmp=`${config.configPath}.tmp`;
+  fs.writeFileSync(tmp,`${JSON.stringify(serializable,null,2)}\n`,{mode:0o600});
+  fs.renameSync(tmp,config.configPath);
+}
+async function addKid({name}){
+  const clean=String(name||'').trim();
+  if(!clean) throw new Error('Kid name is required.');
+  const id=childIdFromName(clean);
+  if(!id) throw new Error('Please use a name with letters or numbers.');
+  if(config.children.some(child=>child.id===id||child.name.toLowerCase()===clean.toLowerCase())) throw new Error('That kid is already in Family Tutor.');
+  const parent=await client.channels.fetch(config.discord.parentChannelId);
+  if(!parent?.guild) throw new Error('Could not add kid right now.');
+  const existing=parent.guild.channels.cache.find(channel=>channel.type===ChannelType.GuildText&&channel.name===id);
+  if(!existing){
+    await parent.guild.channels.create({name:id,type:ChannelType.GuildText,parent:parent.parentId||undefined,reason:`Family Tutor kid ${clean}`});
+  }
+  const child={id,name:clean};
+  config.children.push(child);
+  ensureAgents(child);
+  persistConfig();
+  return child;
+}
+async function deleteKid({childId}){
+  const index=config.children.findIndex(child=>child.id===childId);
+  if(index<0) throw new Error('Kid was not found.');
+  config.children.splice(index,1);
+  persistConfig();
+  return {childId};
+}
 for(const child of config.children) ensureAgents(child);
 const queues=new Map();
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
@@ -243,6 +278,8 @@ if(config.browserBridge?.enabled){
       const original=await channel.messages.fetch(origin.messageId);
       await replyToMessage(original,text);
     },
+    addChild:addKid,
+    deleteChild:deleteKid,
   });
   await browserBridge.start();
   console.log(`[family-tutor-orchestrator] ChatGPT browser bridge listening on ${browserBridge.endpoint()}`);

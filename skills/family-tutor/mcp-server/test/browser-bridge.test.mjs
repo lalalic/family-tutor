@@ -201,6 +201,54 @@ test('extension OAuth/PKCE issues a public-client session accepted by hosted web
       socket.once('error',reject);
     });
     assert.equal(ready.type,'bridge.ready');
-    assert.deepEqual(ready.children,['kid1']);
+    assert.deepEqual(ready.children,[{id:'kid1',name:'kid1'}]);
   }finally{socket?.close(); await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('extension can add and delete kids while child display names stay separate from ids',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-kids-'));
+  const added=[]; const deleted=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'sammy',name:'Sammy'}],host:'127.0.0.1',port:0,
+    addChild:async({name})=>{const child={id:'new-kid',name};added.push(child);return child;},
+    deleteChild:async({childId})=>{deleted.push(childId);return {childId};},
+    replyToDiscord:async()=>{},
+  }).start();
+  let socket;
+  try{
+    const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
+    socket=new WebSocket(`${bridge.websocketEndpoint()}?token=${token}`);
+    const messages=[]; const waiters=[];
+    socket.on('message',data=>{
+      const value=JSON.parse(data.toString());
+      const index=waiters.findIndex(waiter=>waiter.predicate(value));
+      if(index>=0){const [waiter]=waiters.splice(index,1);clearTimeout(waiter.timer);waiter.resolve(value);}
+      else messages.push(value);
+    });
+    const waitFor=predicate=>{
+      const found=messages.findIndex(predicate);
+      if(found>=0) return Promise.resolve(messages.splice(found,1)[0]);
+      return new Promise((resolve,reject)=>{
+        const waiter={predicate,resolve,reject,timer:null};
+        waiter.timer=setTimeout(()=>{const i=waiters.indexOf(waiter);if(i>=0) waiters.splice(i,1);reject(new Error('kid response timeout'));},1500);
+        waiters.push(waiter);
+      });
+    };
+    await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+    const ready=await waitFor(value=>value.type==='bridge.ready');
+    assert.deepEqual(ready.children,[{id:'sammy',name:'Sammy'}]);
+    socket.send(JSON.stringify({type:'kid.add',requestId:'add-1',name:'New Kid'}));
+    const addedResult=await waitFor(value=>value.type==='kid.result'&&value.requestId==='add-1');
+    assert.equal(addedResult.ok,true);
+    assert.deepEqual(added,[{id:'new-kid',name:'New Kid'}]);
+    const afterAdd=await waitFor(value=>value.type==='bridge.ready'&&value.children.some(child=>child.id==='new-kid'));
+    assert.equal(afterAdd.children.find(child=>child.id==='new-kid').name,'New Kid');
+    socket.send(JSON.stringify({type:'kid.delete',requestId:'delete-1',childId:'new-kid'}));
+    const deletedResult=await waitFor(value=>value.type==='kid.result'&&value.requestId==='delete-1');
+    assert.equal(deletedResult.ok,true);
+    assert.deepEqual(deleted,['new-kid']);
+    const afterDelete=await waitFor(value=>value.type==='bridge.ready'&&!value.children.some(child=>child.id==='new-kid'));
+    assert.deepEqual(afterDelete.children,[{id:'sammy',name:'Sammy'}]);
+  }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });

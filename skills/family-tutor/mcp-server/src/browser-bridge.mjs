@@ -46,16 +46,18 @@ function textResult(value,isError=false){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
     this.tokenFile=path.join(this.root,'token');
-    this.children=new Set(children.map(child=>child.id));
+    this.children=new Map(children.map(child=>[child.id,{id:child.id,name:child.name||child.id}]));
     this.host=host;
     this.port=Number(port);
     this.fetchImpl=fetchImpl;
     this.replyToDiscord=replyToDiscord;
+    this.addChild=addChild;
+    this.deleteChild=deleteChild;
     this.ttlMs=ttlMs;
     this.turnTimeoutMs=turnTimeoutMs;
     this.configuredToken=token;
@@ -385,23 +387,51 @@ export class BrowserBridge {
     this.wsServer.handleUpgrade(req,socket,head,client=>this.wsServer.emit('connection',client,req));
   }
 
+  #broadcastChildren(){
+    const payload=JSON.stringify({type:'bridge.ready',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
+    for(const client of this.wsServer?.clients||[]) if(client.readyState===WebSocket.OPEN) client.send(payload);
+  }
+
   #connection(socket,req){
     const bindings=new Set();
     const host=String(req?.headers?.host||'').split(':')[0].toLowerCase();
     const hosted=host==='family-tutor.qili2.com';
     let authenticated=!hosted;
     if(hosted) socket.send(JSON.stringify({type:'bridge.auth.required'}));
-    else socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
+    else socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))}));
     socket.on('message',raw=>{
       let message;
       try{ message=JSON.parse(raw.toString()); }catch{ return; }
       if(!authenticated){
         if(message?.type==='bridge.auth'&&(this.#verifyExtensionAccessToken(message.token)||timingSafeEqualText(message.token,this.token))){
           authenticated=true;
-          socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children].sort()}));
+          socket.send(JSON.stringify({type:'bridge.ready',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))}));
           return;
         }
         socket.close(4401,'authentication required');
+        return;
+      }
+      if(message?.type==='kid.add'){
+        const name=String(message.name||'').trim();
+        if(!name){ socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:'Kid name is required.'})); return; }
+        Promise.resolve(this.addChild?.({name})).then(child=>{
+          if(!child?.id) throw new Error('Could not add kid.');
+          this.children.set(child.id,{id:child.id,name:child.name||child.id});
+          socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:true,child:{id:child.id,name:child.name||child.id}}));
+          this.#broadcastChildren();
+        }).catch(error=>socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:String(error?.message||'Could not add kid.')})));
+        return;
+      }
+      if(message?.type==='kid.delete'){
+        const childId=String(message.childId||'').trim();
+        if(!this.children.has(childId)){ socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:'Kid was not found.'})); return; }
+        Promise.resolve(this.deleteChild?.({childId})).then(()=>{
+          this.children.delete(childId);
+          const bound=this.childSockets.get(childId); if(bound) this.childSockets.delete(childId);
+          this.childVersions.delete(childId);
+          socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:true,childId}));
+          this.#broadcastChildren();
+        }).catch(error=>socket.send(JSON.stringify({type:'kid.result',requestId:message.requestId,ok:false,error:String(error?.message||'Could not delete kid.')})));
         return;
       }
       if(message?.type==='extension.ping'||message?.type==='turn.ack') return;

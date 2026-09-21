@@ -2,12 +2,15 @@ import { projectIdFromChatGptUrl } from './protocol.mjs';
 
 const childrenEl = document.querySelector('#children');
 const notice = document.querySelector('#notice');
-const connectFamily = document.querySelector('#connect-family');
-const projectTitle = document.querySelector('#project-title');
-const projectIdEl = document.querySelector('#project-id');
-const kidsSummary = document.querySelector('#kids-summary');
 const statusDot = document.querySelector('#status-dot');
 const statusLabel = document.querySelector('#status-label');
+const kidCount = document.querySelector('#kid-count');
+const addKidLink = document.querySelector('#add-kid-link');
+const addForm = document.querySelector('#add-form');
+const kidName = document.querySelector('#kid-name');
+const saveKid = document.querySelector('#save-kid');
+const cancelAdd = document.querySelector('#cancel-add');
+const reconnect = document.querySelector('#reconnect');
 const version = document.querySelector('#version');
 const recovery = document.querySelector('#recovery');
 
@@ -22,93 +25,68 @@ function setNotice(message = '', isError = false) {
 
 function renderHealth(current) {
   const state = current.health?.state || 'disconnected';
-  statusDot.className = `status-dot ${state}`;
+  statusDot.className = `dot ${state}`;
   statusLabel.textContent = state === 'connected'
     ? 'Connected'
     : state === 'recovering'
       ? 'Connecting'
       : state === 'error'
         ? 'Needs attention'
-        : 'Disconnected';
-  connectFamily.hidden = state !== 'error';
-  version.textContent = `Version ${current.version || 'unknown'}`;
-  const count = Number(current.health?.recoveryCount || 0);
-  recovery.textContent = count > 0 ? `${count} reconnect attempt${count === 1 ? '' : 's'}` : '';
+        : 'Offline';
+  reconnect.hidden = state !== 'error';
+  version.textContent = current.version ? `v${current.version}` : '';
+  const attempts = Number(current.health?.recoveryCount || 0);
+  recovery.textContent = attempts > 0 ? `${attempts} ${attempts === 1 ? 'retry' : 'retries'}` : '';
   if (current.health?.lastError) setNotice(current.health.lastError, true);
 }
 
-function renderProject() {
-  if (!activeProjectId) {
-    projectTitle.textContent = 'Open a ChatGPT Project to assign it';
-    projectIdEl.textContent = '';
-    return;
-  }
-  projectTitle.textContent = tab?.title || 'ChatGPT Project';
-  projectIdEl.textContent = activeProjectId;
-}
-
-function childState(current, childId) {
-  const project = current.bindings?.[childId];
-  const threadUrl = current.threadUrls?.[childId];
-  if (!project) return { label: 'Not configured', action: 'Assign', current: false };
-  if (threadUrl && threadUrl === tab?.url) return { label: 'Assigned to this thread', action: 'Assigned', current: true };
-  if (project === activeProjectId) return { label: 'Assigned to another thread in this project', action: 'Use this thread', current: false };
-  return { label: 'Assigned to another project', action: 'Move here', current: false };
-}
-
-async function loadState() {
+async function state() {
   return chrome.runtime.sendMessage({ type: 'settings.get' });
 }
 
 async function render() {
-  const current = await loadState();
+  const current = await state();
   renderHealth(current);
-  renderProject();
-
-  const childIds = Array.isArray(current.children) ? current.children : [];
-  const configured = childIds.filter((childId) => Boolean(current.bindings?.[childId])).length;
-  kidsSummary.textContent = `${configured} of ${childIds.length} configured`;
-
+  const kids = Array.isArray(current.children) ? current.children : [];
+  kidCount.textContent = `${kids.length} kid${kids.length === 1 ? '' : 's'}`;
   childrenEl.replaceChildren();
-  if (!childIds.length) {
+
+  if (!kids.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = current.health?.state === 'connected'
-      ? 'No kids are configured for this family yet.'
-      : 'Waiting for Family Tutor to connect…';
+    empty.textContent = 'No kids yet.';
     childrenEl.append(empty);
     return;
   }
 
-  for (const childId of childIds) {
-    const state = childState(current, childId);
+  for (const kid of kids) {
+    const childId = kid.id;
+    const linkedProject = current.bindings?.[childId] || null;
+    const linkedHere = Boolean(activeProjectId && linkedProject === activeProjectId);
+    const linkedElsewhere = Boolean(linkedProject && !linkedHere);
+
     const row = document.createElement('div');
     row.className = 'kid';
 
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar';
-    avatar.textContent = String(childId).trim().slice(0, 1) || '?';
-
-    const copy = document.createElement('div');
-    copy.className = 'kid-copy';
     const name = document.createElement('div');
     name.className = 'kid-name';
-    name.textContent = childId;
-    const detail = document.createElement('div');
-    detail.className = 'kid-state';
-    detail.textContent = state.label;
-    copy.append(name, detail);
+    name.textContent = kid.name || childId;
 
     const actions = document.createElement('div');
-    actions.className = 'kid-actions';
+    actions.className = 'actions';
 
-    const assign = document.createElement('button');
-    assign.className = state.current ? 'secondary' : 'primary';
-    assign.textContent = state.action;
-    assign.disabled = !activeProjectId || state.current;
-    assign.addEventListener('click', async () => {
-      assign.disabled = true;
-      setNotice('Updating assignment…');
+    const link = document.createElement('button');
+    link.className = `icon-btn${linkedHere ? ' linked' : linkedElsewhere ? ' previously-linked' : ''}`;
+    link.type = 'button';
+    link.textContent = linkedHere ? '✓' : '🔗';
+    link.title = linkedHere
+      ? 'Linked to this project'
+      : activeProjectId
+        ? linkedElsewhere ? 'Relink to this project' : 'Link to this project'
+        : 'Open a ChatGPT project to link this kid';
+    link.disabled = !activeProjectId || linkedHere;
+    link.addEventListener('click', async () => {
+      link.disabled = true;
       const result = await chrome.runtime.sendMessage({
         type: 'assign.currentProject',
         tabId: tab?.id,
@@ -116,50 +94,82 @@ async function render() {
       });
       if (result?.error) {
         setNotice(result.error, true);
-        assign.disabled = false;
+        link.disabled = false;
         return;
       }
-      setNotice(`${childId} is now assigned to this ChatGPT thread.`);
+      setNotice('');
       await render();
     });
-    actions.append(assign);
 
-    if (current.bindings?.[childId]) {
-      const remove = document.createElement('button');
-      remove.className = 'link-button';
-      remove.textContent = 'Remove';
-      remove.title = `Remove ${childId} assignment`;
-      remove.addEventListener('click', async () => {
-        remove.disabled = true;
-        const result = await chrome.runtime.sendMessage({ type: 'unassign.child', childId });
-        if (result?.error) {
-          setNotice(result.error, true);
-          remove.disabled = false;
-          return;
-        }
-        setNotice(`${childId} assignment removed.`);
-        await render();
-      });
-      actions.append(remove);
-    }
+    const remove = document.createElement('button');
+    remove.className = 'icon-btn';
+    remove.type = 'button';
+    remove.textContent = '🗑';
+    remove.title = `Delete ${kid.name || childId} from Family Tutor`;
+    remove.addEventListener('click', async () => {
+      const confirmed = confirm(`Delete ${kid.name || childId} from Family Tutor? Their Discord history will not be deleted.`);
+      if (!confirmed) return;
+      remove.disabled = true;
+      const result = await chrome.runtime.sendMessage({ type: 'kid.delete', childId });
+      if (result?.error) {
+        setNotice(result.error, true);
+        remove.disabled = false;
+        return;
+      }
+      setNotice('');
+      await render();
+    });
 
-    row.append(avatar, copy, actions);
+    actions.append(link, remove);
+    row.append(name, actions);
     childrenEl.append(row);
   }
 }
 
-connectFamily.addEventListener('click', async () => {
-  connectFamily.disabled = true;
-  setNotice('Reconnecting Family Tutor…');
-  const result = await chrome.runtime.sendMessage({ type: 'connection.oauth' });
-  if (result?.error) {
-    setNotice(result.error, true);
-    connectFamily.disabled = false;
+function closeAddForm() {
+  addForm.classList.remove('show');
+  kidName.value = '';
+}
+
+addKidLink.addEventListener('click', () => {
+  addForm.classList.add('show');
+  kidName.focus();
+});
+
+cancelAdd.addEventListener('click', closeAddForm);
+
+saveKid.addEventListener('click', async () => {
+  const name = kidName.value.trim();
+  if (!name) {
+    kidName.focus();
     return;
   }
-  setNotice('Family Tutor connected.');
-  connectFamily.hidden = true;
-  connectFamily.disabled = false;
+  saveKid.disabled = true;
+  const result = await chrome.runtime.sendMessage({ type: 'kid.add', name });
+  saveKid.disabled = false;
+  if (result?.error) {
+    setNotice(result.error, true);
+    return;
+  }
+  closeAddForm();
+  setNotice('');
+  await render();
+});
+
+kidName.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') saveKid.click();
+  if (event.key === 'Escape') closeAddForm();
+});
+
+reconnect.addEventListener('click', async () => {
+  reconnect.disabled = true;
+  const result = await chrome.runtime.sendMessage({ type: 'connection.oauth' });
+  reconnect.disabled = false;
+  if (result?.error) {
+    setNotice(result.error, true);
+    return;
+  }
+  setNotice('');
   await render();
 });
 

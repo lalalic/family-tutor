@@ -4,6 +4,7 @@ const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
 let socket = null;
 let availableChildren = [];
+const kidRequests = new Map();
 let reconnectTimer = null;
 let keepAliveTimer = null;
 let familyGroupId = null;
@@ -127,9 +128,8 @@ const ACTION_ICON_PATHS = Object.freeze({
 
 async function syncActionHealth(health) {
   const state = ACTION_ICON_PATHS[health?.state] ? health.state : HEALTH_STATES.DISCONNECTED;
-  const { bindings = {} } = await chrome.storage.local.get({ bindings: {} });
-  const configuredKids = Object.keys(canonicalBindings(bindings)).length;
-  const badgeText = configuredKids > 999 ? '999+' : String(configuredKids);
+  const kidCount = availableChildren.length;
+  const badgeText = kidCount > 999 ? '999+' : String(kidCount);
   const badgeColors = {
     connected: '#22c55e',
     recovering: '#f59e0b',
@@ -166,6 +166,16 @@ async function applyBootstrap() {
 
 function send(message) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+}
+
+function requestKidAction(message, timeoutMs = 5000) {
+  if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Family Tutor is not connected.'));
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { kidRequests.delete(requestId); reject(new Error('Family Tutor did not respond.')); }, timeoutMs);
+    kidRequests.set(requestId, { resolve, reject, timer });
+    send({ ...message, requestId });
+  });
 }
 
 async function reportBindings() {
@@ -502,9 +512,26 @@ async function connect() {
         return;
       }
       if (message.type === 'bridge.ready') {
-        availableChildren = Array.isArray(message.children) ? message.children.map(String) : [];
+        availableChildren = Array.isArray(message.children)
+          ? message.children.map((child) => typeof child === 'string' ? { id: child, name: child } : { id: String(child?.id || ''), name: String(child?.name || child?.id || '') }).filter((child) => child.id)
+          : [];
+        const validIds = new Set(availableChildren.map((child) => child.id));
+        const current = await settings();
+        const nextBindings = Object.fromEntries(Object.entries(current.bindings || {}).filter(([childId]) => validIds.has(childId)));
+        const nextThreadUrls = canonicalThreadUrls(nextBindings, current.threadUrls || {});
+        if (JSON.stringify(nextBindings) !== JSON.stringify(current.bindings) || JSON.stringify(nextThreadUrls) !== JSON.stringify(current.threadUrls)) {
+          await chrome.storage.local.set({ bindings: nextBindings, threadUrls: nextThreadUrls });
+        }
         await reportBindings();
         await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString(), recoveryCount: 0 });
+        return;
+      }
+      if (message.type === 'kid.result') {
+        const pending = kidRequests.get(String(message.requestId || ''));
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        kidRequests.delete(String(message.requestId || ''));
+        if (message.ok) pending.resolve(message); else pending.reject(new Error(message.error || 'Family Tutor could not update the kid.'));
         return;
       }
       if (message.type !== 'turn') return;
@@ -532,7 +559,7 @@ async function connect() {
   };
   ws.onerror = () => {
     if (socket !== ws) return;
-    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'The Family Tutor bridge is unavailable.' }).catch(() => {});
+    updateHealth({ state: HEALTH_STATES.ERROR, lastError: 'Family Tutor is unavailable.' }).catch(() => {});
     ws.close();
   };
 }
@@ -622,6 +649,30 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+  if (message?.type === 'kid.add') {
+    (async () => {
+      const result = await requestKidAction({ type: 'kid.add', name: String(message.name || '').trim() });
+      respond({ ok: true, child: result.child });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'kid.delete') {
+    (async () => {
+      const childId = String(message.childId || '').trim();
+      await requestKidAction({ type: 'kid.delete', childId });
+      const current = await settings();
+      const bindings = { ...current.bindings };
+      const threadUrls = { ...current.threadUrls };
+      delete bindings[childId];
+      delete threadUrls[childId];
+      await chrome.storage.local.set({ bindings, threadUrls });
+      await syncActionHealth(current.health).catch(() => {});
+      respond({ ok: true });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
   if (message?.type === 'assign.currentProject') {
     (async () => {
       const tabId = message.tabId ?? sender.tab?.id;
@@ -629,7 +680,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const projectId = projectIdFromChatGptUrl(tab.url);
       if (!projectId) throw new Error('this tab is not inside a ChatGPT Project');
       const childId = String(message.childId || '').trim();
-      if (!availableChildren.includes(childId)) throw new Error('unknown child');
+      if (!availableChildren.some((child) => child.id === childId)) throw new Error('unknown child');
       const current = await settings();
       const bindings = bindChild(current.bindings, childId, projectId);
       const threadUrls = canonicalThreadUrls(bindings, { ...current.threadUrls, [childId]: tab.url });
