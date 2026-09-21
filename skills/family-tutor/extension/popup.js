@@ -1,4 +1,4 @@
-import { projectIdFromChatGptUrl } from './protocol.mjs';
+import { isChatGptProjectThreadUrl, projectIdFromChatGptUrl } from './protocol.mjs';
 
 const childrenEl = document.querySelector('#children');
 const notice = document.querySelector('#notice');
@@ -16,6 +16,7 @@ const recovery = document.querySelector('#recovery');
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const activeProjectId = projectIdFromChatGptUrl(tab?.url);
+const activeProjectThread = isChatGptProjectThreadUrl(tab?.url);
 
 function setNotice(message = '', isError = false) {
   notice.textContent = message;
@@ -49,6 +50,14 @@ async function render() {
   renderHealth(current);
   const kids = Array.isArray(current.children) ? current.children : [];
   kidCount.textContent = `${kids.length} kid${kids.length === 1 ? '' : 's'}`;
+  const projectAlreadyLinked = Boolean(activeProjectId && Object.values(current.bindings || {}).includes(activeProjectId));
+  addKidLink.disabled = !activeProjectThread || projectAlreadyLinked;
+  addKidLink.title = !activeProjectThread
+    ? 'Open a conversation inside a ChatGPT project to add a kid'
+    : projectAlreadyLinked
+      ? 'This project is already linked to a kid'
+      : 'Add a kid and link this project';
+  if (addKidLink.disabled) closeAddForm();
   childrenEl.replaceChildren();
 
   if (!kids.length) {
@@ -132,6 +141,7 @@ function closeAddForm() {
 }
 
 addKidLink.addEventListener('click', () => {
+  if (addKidLink.disabled) return;
   addForm.classList.add('show');
   kidName.focus();
 });
@@ -146,9 +156,21 @@ saveKid.addEventListener('click', async () => {
   }
   saveKid.disabled = true;
   const result = await chrome.runtime.sendMessage({ type: 'kid.add', name });
-  saveKid.disabled = false;
   if (result?.error) {
+    saveKid.disabled = false;
     setNotice(result.error, true);
+    return;
+  }
+  const childId = result.child?.id;
+  if (!childId) {
+    saveKid.disabled = false;
+    setNotice('Could not add the kid.', true);
+    return;
+  }
+  const linked = await chrome.runtime.sendMessage({ type: 'assign.currentProject', tabId: tab?.id, childId });
+  saveKid.disabled = false;
+  if (linked?.error) {
+    setNotice(linked.error, true);
     return;
   }
   closeAddForm();

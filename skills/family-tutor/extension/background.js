@@ -652,6 +652,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type === 'kid.add') {
     (async () => {
       const result = await requestKidAction({ type: 'kid.add', name: String(message.name || '').trim() });
+      if (result.child?.id && !availableChildren.some((child) => child.id === result.child.id)) {
+        availableChildren = [...availableChildren, { id: String(result.child.id), name: String(result.child.name || result.child.id) }];
+        await syncActionHealth((await settings()).health).catch(() => {});
+      }
       respond({ ok: true, child: result.child });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;

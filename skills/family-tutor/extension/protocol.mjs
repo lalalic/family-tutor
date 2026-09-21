@@ -30,6 +30,17 @@ export function projectIdFromChatGptUrl(value) {
   }
 }
 
+export function isChatGptProjectThreadUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !CHATGPT_HOSTS.has(url.hostname)) return false;
+    if (!projectIdFromChatGptUrl(url.toString())) return false;
+    return /\/project\/c\/[^/]+(?:\/|$)/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeBridgeUrl(value = DEFAULT_BRIDGE_URL) {
   const url = new URL(String(value || DEFAULT_BRIDGE_URL));
   const local = url.protocol === 'ws:' && LOOPBACK_HOSTS.has(url.hostname);

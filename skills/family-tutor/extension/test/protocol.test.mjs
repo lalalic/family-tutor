@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from '../protocol.mjs';
+import { bindChild, canonicalBindings, canonicalThreadUrls, isChatGptProjectThreadUrl, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from '../protocol.mjs';
 
 test('binding keeps one child per ChatGPT project and one project per child', () => {
   const bindings = bindChild({ alice: 'g-p-alpha', bob: 'g-p-beta' }, 'carol', 'g-p-beta');
@@ -44,6 +44,13 @@ test('thread bindings follow project reassignment and discard stale URLs', () =>
   assert.deepEqual(canonicalThreadUrls(bindings, {
     alice: `https://chatgpt.com/g/${beta}/project/c/new`,
   }), { alice: `https://chatgpt.com/g/${beta}/project/c/new` });
+});
+
+test('only a conversation inside a ChatGPT Project counts as a linkable thread page', () => {
+  const project='g-p-6aab2b72ef888191842f03b7a4bc70b6';
+  assert.equal(isChatGptProjectThreadUrl(`https://chatgpt.com/g/${project}-family/project`), false);
+  assert.equal(isChatGptProjectThreadUrl(`https://chatgpt.com/g/${project}-family/project/c/abc123`), true);
+  assert.equal(isChatGptProjectThreadUrl('https://chatgpt.com/c/abc123'), false);
 });
 
 test('bridge, tab, and project URLs stay on allowed hosts', () => {
