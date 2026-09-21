@@ -1,0 +1,9 @@
+{
+  "name": "@family-tutor/hosted-mcp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/adapter.mjs && node --test test/*.test.mjs"
+  }
+}

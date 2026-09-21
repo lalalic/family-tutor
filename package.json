@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run check --prefix packages/core && npm run check --prefix skills/family-tutor/mcp-server && npm run check --prefix skills/family-tutor/runtime/tutor-orchestrator"
+    "check": "npm run check --prefix packages/core && npm run check --prefix packages/discord-adapter && npm run check --prefix packages/hosted-mcp-adapter && npm run check --prefix skills/family-tutor/mcp-server && npm run check --prefix skills/family-tutor/runtime/tutor-orchestrator"
   }
 }
