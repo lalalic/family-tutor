@@ -699,12 +699,12 @@ export class BrowserBridge {
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
       }catch{return redirectOnboarding();}
     }
-    if(req.method==='GET'&&url.pathname==='/setup/learner-profile-template'){
-      const body=Buffer.from(renderLearnerProfileTemplatePage({publicOrigin:this.publicOrigin}));
-      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
+    if(req.method==='GET'&&url.pathname==='/setup/learner-profile-template.md'){
+      const body=Buffer.from(LEARNER_PROFILE_TEMPLATE);
+      res.writeHead(200,{'content-type':'text/markdown; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
     }
     if(req.method==='GET'&&url.pathname==='/v1/setup/learner-profile-template'){
-      return json(res,200,{template:LEARNER_PROFILE_TEMPLATE,page_url:`${this.publicOrigin}/setup/learner-profile-template`});
+      return json(res,200,{template:LEARNER_PROFILE_TEMPLATE,page_url:`${this.publicOrigin}/setup/learner-profile-template.md`});
     }
     if(req.method==='GET'&&url.pathname==='/setup'){
       const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||'',step:url.searchParams.get('step')||'',extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension.zip`}));
