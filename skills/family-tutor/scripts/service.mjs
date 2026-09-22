@@ -12,7 +12,12 @@ const cfg=JSON.parse(fs.readFileSync(configFile,'utf8'));
 const name=cfg.serviceName||'family-tutor-orchestrator';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const runtime=path.join(path.dirname(here),'runtime','tutor-orchestrator');
-const serviceEnv={...process.env,FAMILY_TUTOR_CONFIG:configFile};
+function parseEnvFile(file){
+  if(!file||!fs.existsSync(file)) return {};
+  return Object.fromEntries(fs.readFileSync(file,'utf8').split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!line.startsWith('#')&&line.includes('=')).map(line=>{const i=line.indexOf('=');return [line.slice(0,i).trim(),line.slice(i+1).trim()];}));
+}
+const defaultEnvFile=path.join(process.env.HOME||'', '.config','family-tutor','asr.env');
+const serviceEnv={...process.env,...parseEnvFile(process.env.FAMILY_TUTOR_ENV_FILE||defaultEnvFile),FAMILY_TUTOR_CONFIG:configFile};
 if(!fs.existsSync(path.join(runtime,'node_modules','discord.js'))){
   const install=spawnSync('npm',['install','--omit=dev','--no-fund','--no-audit'],{cwd:runtime,stdio:'inherit',env:process.env});
   if(install.status) process.exit(install.status);

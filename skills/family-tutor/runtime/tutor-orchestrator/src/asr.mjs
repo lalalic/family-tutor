@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { randomBytes, webcrypto } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const execFileAsync=promisify(execFile);
@@ -53,6 +54,34 @@ async function transcribeCloudflare(bytes,{fetchImpl=fetch,env=process.env}={}){
   return text;
 }
 
+
+async function transcribeWorker(bytes,{fetchImpl=fetch,env=process.env}={}){
+  const endpoint=String(env.FAMILY_TUTOR_ASR_ENDPOINT||'').trim();
+  const privateKeyFile=String(env.FAMILY_TUTOR_ASR_PRIVATE_KEY_FILE||path.join(os.homedir(),'.config','family-tutor','asr-signing-key.pk8')).trim();
+  if(!endpoint||!privateKeyFile) throw new Error('Family Tutor ASR worker is not configured');
+  const body={audio:bytes.toString('base64')};
+  const language=String(env.FAMILY_TUTOR_ASR_LANGUAGE||'').trim();
+  if(language) body.language=language;
+  const bodyText=JSON.stringify(body);
+  const timestamp=String(Math.floor(Date.now()/1000));
+  const nonce=randomBytes(16).toString('base64url');
+  const privateKeyBytes=Buffer.from((await fs.readFile(privateKeyFile,'utf8')).trim(),'base64');
+  const privateKey=await webcrypto.subtle.importKey('pkcs8',privateKeyBytes,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+  const signed=Buffer.from(`${timestamp}\n${nonce}\n${bodyText}`);
+  const signature=Buffer.from(await webcrypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},privateKey,signed)).toString('base64url');
+  const response=await fetchImpl(endpoint,{
+    method:'POST',
+    headers:{'content-type':'application/json','x-ft-timestamp':timestamp,'x-ft-nonce':nonce,'x-ft-signature':signature},
+    body:bodyText,
+    signal:AbortSignal.timeout(120000),
+  });
+  const payload=await response.json().catch(()=>null);
+  if(!response.ok) throw new Error(`Family Tutor ASR worker failed (${response.status})`);
+  const text=String(payload?.text||'').trim();
+  if(!text) throw new Error('Family Tutor ASR worker returned no transcript');
+  return text;
+}
+
 async function transcribeLocal(bytes,name,env=process.env){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'family-tutor-asr-'));
   try{
@@ -71,10 +100,12 @@ async function transcribeLocal(bytes,name,env=process.env){
 
 async function transcribeOne(attachment,{fetchImpl=fetch,env=process.env}={}){
   const bytes=await downloadAudioBytes(attachment,fetchImpl);
-  const provider=String(env.FAMILY_TUTOR_ASR_PROVIDER||'cloudflare').trim().toLowerCase();
+  const provider=String(env.FAMILY_TUTOR_ASR_PROVIDER||(env.FAMILY_TUTOR_ASR_ENDPOINT?'worker':'cloudflare')).trim().toLowerCase();
   if(provider==='local') return transcribeLocal(bytes,attachment.name,env);
   try{
-    return await transcribeCloudflare(bytes,{fetchImpl,env});
+    if(provider==='worker') return await transcribeWorker(bytes,{fetchImpl,env});
+    if(provider==='cloudflare') return await transcribeCloudflare(bytes,{fetchImpl,env});
+    throw new Error(`unsupported ASR provider: ${provider}`);
   }catch(error){
     if(String(env.FAMILY_TUTOR_ASR_LOCAL_FALLBACK||'1')!=='1') throw error;
     return transcribeLocal(bytes,attachment.name,env);

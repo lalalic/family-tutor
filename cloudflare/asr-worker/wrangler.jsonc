@@ -1,0 +1,13 @@
+{
+  "name": "family-tutor-asr",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-21",
+  "ai": {
+    "binding": "AI"
+  },
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  }
+}
