@@ -19,7 +19,7 @@
   }
   *{box-sizing:border-box}
   body{width:340px;margin:0;background:#fff;color:var(--ink);font:13px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-  button,input{font:inherit}
+  button{font:inherit}
   .shell{padding:16px}
   .header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
   .brand{display:flex;align-items:center;gap:10px}
@@ -43,19 +43,13 @@
   .icon-btn:disabled{cursor:default;opacity:.55}
   .linked{color:var(--green);font-weight:800}
   .previously-linked{background:var(--brand-soft);color:var(--brand)}
-  .add-link{display:inline-flex;margin-top:10px;border:0;background:transparent;color:var(--brand);padding:0;cursor:pointer;font-weight:650}
-  .add-link:disabled{color:var(--muted);cursor:default;opacity:.55}
-  .add-form{display:none;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;margin-top:10px}
-  .add-form.show{display:grid}
-  .add-form input{min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 9px;outline:none}
-  .add-form input:focus{border-color:var(--brand)}
-  .small-btn{border:1px solid var(--line);border-radius:8px;background:#fff;padding:7px 9px;cursor:pointer}
-  .small-btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .menu-link{display:inline-flex;margin-top:10px;border:0;background:transparent;color:var(--brand);padding:0;cursor:pointer;font-weight:650}
+  .menu-link:disabled{color:var(--muted);cursor:default;opacity:.55}
   .notice{display:none;margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--soft);color:var(--muted);font-size:11px}
   .notice.show{display:block}
   .notice.error{background:#fff1f2;color:#991b1b}
-  .setup-for-me,.reconnect,.chatgpt-connect{width:100%;margin-top:10px;border:0;border-radius:9px;background:var(--brand);color:#fff;padding:9px;cursor:pointer}
-  .setup-for-me{background:#17211f}
+  .auto-setup,.reconnect,.chatgpt-connect{width:100%;margin-top:10px;border:0;border-radius:9px;background:var(--brand);color:#fff;padding:9px;cursor:pointer}
+  .auto-setup{background:#17211f}
   .chatgpt-connect{background:#fff;color:var(--ink);border:1px solid var(--line)}
   .footer{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:12px}
   .empty{padding:18px 12px;text-align:center;color:var(--muted)}
@@ -74,15 +68,11 @@
   </div>
   <div id="children" class="kids"></div>
 
-  <button id="add-kid-link" class="add-link" type="button">＋ Add kid</button>
-  <div id="add-form" class="add-form">
-    <input id="kid-name" maxlength="80" autocomplete="off" placeholder="Kid name">
-    <button id="save-kid" class="small-btn primary" type="button">Add</button>
-    <button id="cancel-add" class="small-btn" type="button">Cancel</button>
-  </div>
+  <button id="refresh-kids" class="menu-link" type="button">↻ Refresh kids from Discord</button>
+  <button id="setup-guide" class="menu-link" type="button">Setup guide</button>
 
   <div id="notice" class="notice"></div>
-  <button id="setup-for-me" class="setup-for-me" type="button">Setup Help</button>
+  <button id="auto-setup" class="auto-setup" type="button">Try auto setup</button>
   <button id="chatgpt-connect" class="chatgpt-connect" type="button">Connect ChatGPT</button>
   <button id="reconnect" class="reconnect" hidden>Reconnect</button>
 
