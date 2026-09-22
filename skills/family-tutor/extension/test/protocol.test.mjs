@@ -63,7 +63,7 @@ test('bridge, tab, and project URLs stay on allowed hosts', () => {
   assert.equal(projectIdFromChatGptUrl('https://chatgpt.com/c/123'), null);
 });
 
-test('turn validation accepts correlated loopback image and audio turns', () => {
+test('turn validation accepts correlated loopback attachments of common file types', () => {
   const turn = validateTurn({
     type: 'turn',
     childId: 'kid-a',
@@ -81,6 +81,11 @@ test('turn validation accepts correlated loopback image and audio turns', () => 
     attachments: [{ url: 'http://127.0.0.1:43117/blobs/2', token: 'secret', name: 'voice.ogg', mimeType: 'audio/ogg' }],
   });
   assert.equal(voice.attachments[0].mimeType, 'audio/ogg');
+  const document = validateTurn({
+    type: 'turn', childId: 'kid-a', prompt: 'Read this file.', correlation: { correlationId: 'turn-file' },
+    attachments: [{ url: 'http://127.0.0.1:43117/blobs/3', token: 'secret', name: 'homework.pdf', mimeType: 'application/pdf' }],
+  });
+  assert.equal(document.attachments[0].mimeType, 'application/pdf');
+  assert.equal(document.attachments[0].name, 'homework.pdf');
   assert.throws(() => validateTurn({ type: 'turn', childId: 'kid-a', prompt: '', correlation: { correlationId: 'x' }, attachments: [{ url: 'https://example.com/x', mimeType: 'image/jpeg' }] }), /loopback/);
-  assert.throws(() => validateTurn({ type: 'turn', childId: 'kid-a', prompt: '', correlation: { correlationId: 'x' }, attachments: [{ url: 'http://127.0.0.1/x', mimeType: 'application/pdf' }] }), /image and audio/);
 });
