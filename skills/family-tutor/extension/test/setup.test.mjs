@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.9');
+  assert.equal(manifest.version,'2.6.10');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -23,7 +23,6 @@ test('background redeems claim without exposing a family or guild identifier to 
   assert.match(source,/bridgeRefreshToken: result\.refresh_token/);
   assert.doesNotMatch(fs.readFileSync(path.join(root,'setup.js'),'utf8'),/guildId|familyId|access_token|refresh_token/);
 });
-
 
 test('rotated hosted refresh token is persisted and auth retry is scheduled',()=>{
   const source=fs.readFileSync(path.join(root,'background.js'),'utf8');
@@ -56,50 +55,41 @@ test('thread rollover clears the active thread and binds the next durable conver
   assert.match(content,/threadUrl: location\.href/);
 });
 
-
-test('popup exposes Setup Help and the help page keeps auto setup optional',()=>{
+test('popup refreshes Discord kids, links to hosted setup, and exposes auto setup',()=>{
   const popup=fs.readFileSync(path.join(root,'popup.html'),'utf8');
   const popupJs=fs.readFileSync(path.join(root,'popup.js'),'utf8');
-  const help=fs.readFileSync(path.join(root,'setup-help.html'),'utf8');
-  const helpJs=fs.readFileSync(path.join(root,'setup-help.js'),'utf8');
-  assert.match(popup,/Setup Help/);
-  assert.match(popupJs,/setup-help\.html/);
-  assert.match(help,/Optional: try auto setup/);
-  assert.match(help,/ChatGPT Developer Mode/);
-  assert.match(help,/Add Family Tutor to ChatGPT/);
-  assert.match(help,/Create one ChatGPT Project for each kid/);
-  assert.match(help,/Check that everything is connected/);
-  assert.match(help,/Send a test message/);
-  assert.match(help,/https:\/\/family-tutor\.qili2\.com\/setup/);
-  assert.match(helpJs,/type:'setup\.projects'/);
-  assert.match(helpJs,/type:'setup\.openDeveloperMode'/);
-  assert.match(helpJs,/type:'chatgpt\.authToken'/);
+  assert.match(popup,/Refresh kids from Discord/);
+  assert.match(popup,/Setup guide/);
+  assert.match(popup,/Try auto setup/);
+  assert.doesNotMatch(popup,/Add kid/);
+  assert.match(popupJs,/type: 'setup\.status'/);
+  assert.match(popupJs,/https:\/\/family-tutor\.qili2\.com\/setup/);
+  assert.match(popupJs,/type: 'setup\.projects'/);
+  assert.match(popupJs,/type: 'setup\.openDeveloperMode'/);
+  assert.equal(fs.existsSync(path.join(root,'setup-help.html')),false);
+  assert.equal(fs.existsSync(path.join(root,'setup-help.js')),false);
 });
 
-test('best-effort setup automation creates only missing kid projects and preserves manual fallback',()=>{
+test('auto setup applies a learner-specific profile to every kid project',()=>{
   const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
   const automation=fs.readFileSync(path.join(root,'setup-automation.mjs'),'utf8');
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
-  assert.match(background,/setupKidProjects/);
-  assert.match(background,/message\?\.type === 'setup\.projects'/);
-  assert.match(automation,/children\.filter\(\(child\) => !current\.bindings\?\.\[child\.id\]\)/);
+  assert.match(background,/v1\/learner-profile-template/);
+  assert.match(background,/getLearnerProfileTemplate/);
+  assert.match(automation,/for \(const child of children\)/);
+  assert.match(automation,/existingProjectId/);
   assert.match(automation,/setup\.project\.ensure/);
+  assert.match(automation,/replaceAll\('<NAME>', learnerName\)/);
+  assert.match(automation,/replaceAll\('<PREFERRED_NAME>', learnerName\)/);
+  assert.match(automation,/setup\.project\.instructions/);
   assert.match(content,/async function ensureProject\(projectName\)/);
   assert.match(content,/Open ChatGPT and create a Project named/);
-  assert.match(background,/v1\/learner-profile-template/);
-  assert.match(automation,/getLearnerProfileTemplate/);
-  assert.match(automation,/instructions: profile\.template/);
-  assert.match(content,/setup\.project\.instructions/);
+  assert.match(content,/applyProjectInstructions/);
 });
 
-
-test('setup waits for Discord readiness and finishes with channel greetings',()=>{
+test('setup status is the Discord source for available children',()=>{
   const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
-  const help=fs.readFileSync(path.join(root,'setup-help.js'),'utf8');
   assert.match(background,/\/v1\/setup\/status/);
   assert.match(background,/availableChildren = result\.children/);
   assert.match(background,/\/v1\/setup\/finish/);
-  assert.match(help,/Discord parent\/kid channels are not ready yet/);
-  assert.match(help,/Waiting for the parent and kid Discord channels/);
-  assert.match(help,/Welcome\/help messages sent to the kid and parent channels/);
 });
