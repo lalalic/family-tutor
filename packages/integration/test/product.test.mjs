@@ -168,3 +168,25 @@ test('hosted server exposes health/readiness and extension relay on the same pro
     assert.deepEqual(await (await fetch(`${base}/readyz`)).json(), { status: 'ready' });
   } finally { await product.close(); }
 });
+
+test('hosted server serves a generic learner profile template and bootstrap without family data', async () => {
+  const { product } = setup();
+  await product.server.start();
+  try {
+    const base = product.server.endpoint().replace('/mcp', '');
+    const templateResponse = await fetch(`${base}/v1/learner-profile-template`);
+    assert.equal(templateResponse.status, 200);
+    const template = await templateResponse.json();
+    assert.match(template.template, /https:\/\/family-tutor\.qili2\.com\/bootstrap\/latest\.md/);
+    assert.match(template.template, /<NAME>/);
+    assert.match(template.template, /exactly one learner/);
+    assert.doesNotMatch(template.template, /reply_to_discord|send_tutor_message|create_study_plan|FAMILY_TUTOR_CONTEXT/);
+    assert.equal(JSON.stringify(template).includes('family-a'), false);
+
+    const bootstrap = await fetch(`${base}/bootstrap/latest.md`);
+    assert.equal(bootstrap.status, 200);
+    const bootstrapText = await bootstrap.text();
+    assert.match(bootstrapText, /You are \*\*Neo\*\*/);
+    assert.doesNotMatch(bootstrapText, /capabilit|tool selection|NotebookLM|drawing|attachment|thread continuity|feature availability/i);
+  } finally { await product.close(); }
+});

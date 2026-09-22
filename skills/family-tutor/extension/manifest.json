@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Family Tutor ChatGPT Bridge",
-  "version": "2.6.7",
+  "version": "2.6.12",
   "description": "Routes Family Tutor turns to assigned ChatGPT Projects.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAur3BdmnMtwShNKj8laNFdBIoOt3NIFMi+1vkv8r5oetz4GqgSW9Tb3RMnhf5mtDCEvnoTaBc5dx+JWZrxTCeUXBKgE4S7PxLLpoTT94H1TOOCbGcWD3fmBsJCBEvQfgpuM33QhOZK4cOLIgvXNcF0vc2NUFci3PAx3JSmmpMLuxAq6v9xKSuP42hBu9OJ1SDWMUYg7bGmHnEL2nveaWPjINFy5eSAV+qRgeKLdKFiVW3jibIh30D6EWUBV47dG+AEtcnNyWSDQhQy2GitcHZ0maIo9hAZqSYx3Km5mxUcWySNjvppa4uGyPvwck+A+hdMgoacZzH3JS+Y0YDxu3mbQIDAQAB",
   "permissions": [

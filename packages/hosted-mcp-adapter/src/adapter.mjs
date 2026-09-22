@@ -180,7 +180,7 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
 
 function cryptoRandomId() { return `req_${randomUUID()}`; }
 
-export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024, healthCheck = async () => ({ status: 'ok' }), readinessCheck = async () => ({ status: 'ready' }) } = {}) {
+export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024, healthCheck = async () => ({ status: 'ok' }), readinessCheck = async () => ({ status: 'ready' }), learnerProfileTemplate = null, latestBootstrap = null } = {}) {
   if (!adapter?.handle) throw new Error('adapter is required');
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/readyz')) {
@@ -194,6 +194,16 @@ export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, m
         res.writeHead(503, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ status: 'unavailable' }));
       }
+    }
+    if (req.method === 'GET' && req.url === '/v1/learner-profile-template' && learnerProfileTemplate) {
+      const data = Buffer.from(JSON.stringify(learnerProfileTemplate));
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': data.length });
+      return res.end(data);
+    }
+    if (req.method === 'GET' && (req.url === '/bootstrap/latest' || req.url === '/bootstrap/latest.md') && latestBootstrap) {
+      const data = Buffer.from(String(latestBootstrap));
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'content-length': data.length });
+      return res.end(data);
     }
     if (req.method !== 'POST' || req.url !== '/mcp') { res.writeHead(404); return res.end(); }
     let size = 0; const chunks = [];

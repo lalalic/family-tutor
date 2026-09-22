@@ -120,6 +120,20 @@ function candidateByText(selector, patterns, root = document) {
   }) || null;
 }
 
+async function applyProjectInstructions(instructions) {
+  const value = String(instructions || '').trim();
+  if (!value) throw new Error('Project Instructions template is empty.');
+  const menu = candidateByText('button,[role="button"]', ['project settings', 'edit project', 'project instructions']);
+  if (menu) menu.click();
+  const panel = await waitFor(() => document.querySelector('[role="dialog"]') || document.querySelector('form'), 'ChatGPT Project settings', 10000);
+  const field = await waitFor(() => panel.querySelector('textarea, [contenteditable="true"]'), 'ChatGPT Project Instructions field', 10000);
+  fillComposer(field, value);
+  const save = candidateByText('button,[role="button"]', ['save', 'done', 'update'], panel);
+  if (!save) throw new Error('ChatGPT Project Instructions save button not found.');
+  save.click();
+  return { applied: true };
+}
+
 async function ensureProject(projectName) {
   const name = normalized(projectName);
   if (!name) throw new Error('kid name is required');
@@ -199,6 +213,10 @@ async function submitTurn(message) {
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type === 'setup.project.ensure') {
     ensureProject(message.name).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+  if (message?.type === 'setup.project.instructions') {
+    applyProjectInstructions(message.instructions).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type !== 'turn') return;

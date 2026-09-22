@@ -1,24 +1,20 @@
-import { isChatGptProjectThreadUrl, projectIdFromChatGptUrl } from './protocol.mjs';
+import { projectIdFromChatGptUrl } from './protocol.mjs';
 
 const childrenEl = document.querySelector('#children');
 const notice = document.querySelector('#notice');
 const statusDot = document.querySelector('#status-dot');
 const statusLabel = document.querySelector('#status-label');
-const kidCount = document.querySelector('#kid-count');
-const addKidLink = document.querySelector('#add-kid-link');
-const addForm = document.querySelector('#add-form');
-const kidName = document.querySelector('#kid-name');
-const saveKid = document.querySelector('#save-kid');
-const cancelAdd = document.querySelector('#cancel-add');
+const refreshKids = document.querySelector('#refresh-kids');
+const homeLink = document.querySelector('#home-link');
+const guideLink = document.querySelector('#guide-link');
+const autoSetup = document.querySelector('#auto-setup');
 const reconnect = document.querySelector('#reconnect');
 const chatgptConnect = document.querySelector('#chatgpt-connect');
-const setupForMe = document.querySelector('#setup-for-me');
 const version = document.querySelector('#version');
 const recovery = document.querySelector('#recovery');
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const activeProjectId = projectIdFromChatGptUrl(tab?.url);
-const activeProjectThread = isChatGptProjectThreadUrl(tab?.url);
 
 function setNotice(message = '', isError = false) {
   notice.textContent = message;
@@ -51,21 +47,12 @@ async function render() {
   const current = await state();
   renderHealth(current);
   const kids = Array.isArray(current.children) ? current.children : [];
-  kidCount.textContent = `${kids.length} kid${kids.length === 1 ? '' : 's'}`;
-  const projectAlreadyLinked = Boolean(activeProjectId && Object.values(current.bindings || {}).includes(activeProjectId));
-  addKidLink.disabled = !activeProjectThread || projectAlreadyLinked;
-  addKidLink.title = !activeProjectThread
-    ? 'Open a conversation inside a ChatGPT project to add a kid'
-    : projectAlreadyLinked
-      ? 'This project is already linked to a kid'
-      : 'Add a kid and link this project';
-  if (addKidLink.disabled) closeAddForm();
   childrenEl.replaceChildren();
 
   if (!kids.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No kids yet.';
+    empty.textContent = 'No kids found in Discord.';
     childrenEl.append(empty);
     return;
   }
@@ -137,58 +124,58 @@ async function render() {
   }
 }
 
-function closeAddForm() {
-  addForm.classList.remove('show');
-  kidName.value = '';
-}
-
-addKidLink.addEventListener('click', () => {
-  if (addKidLink.disabled) return;
-  addForm.classList.add('show');
-  kidName.focus();
-});
-
-cancelAdd.addEventListener('click', closeAddForm);
-
-saveKid.addEventListener('click', async () => {
-  const name = kidName.value.trim();
-  if (!name) {
-    kidName.focus();
-    return;
-  }
-  saveKid.disabled = true;
-  const result = await chrome.runtime.sendMessage({ type: 'kid.add', name });
+async function refreshKidsFromDiscord() {
+  refreshKids.disabled = true;
+  const result = await chrome.runtime.sendMessage({ type: 'setup.status' });
+  refreshKids.disabled = false;
   if (result?.error) {
-    saveKid.disabled = false;
     setNotice(result.error, true);
-    return;
+    return null;
   }
-  const childId = result.child?.id;
-  if (!childId) {
-    saveKid.disabled = false;
-    setNotice('Could not add the kid.', true);
-    return;
-  }
-  const linked = await chrome.runtime.sendMessage({ type: 'assign.currentProject', tabId: tab?.id, childId });
-  saveKid.disabled = false;
-  if (linked?.error) {
-    setNotice(linked.error, true);
-    return;
-  }
-  closeAddForm();
   setNotice('');
   await render();
-});
+  return result;
+}
 
-kidName.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') saveKid.click();
-  if (event.key === 'Escape') closeAddForm();
-});
+refreshKids.addEventListener('click', refreshKidsFromDiscord);
 
-
-setupForMe.addEventListener('click', async () => {
-  await chrome.tabs.create({ url: chrome.runtime.getURL('setup-help.html') });
+homeLink.addEventListener('click', async (event) => {
+  event.preventDefault();
+  await chrome.tabs.create({ url: 'https://family-tutor.qili2.com/' });
   window.close();
+});
+
+guideLink.addEventListener('click', async (event) => {
+  event.preventDefault();
+  await chrome.tabs.create({ url: 'https://family-tutor.qili2.com/setup' });
+  window.close();
+});
+
+autoSetup.addEventListener('click', async () => {
+  autoSetup.disabled = true;
+  setNotice('Trying automatic setup…');
+  try {
+    const setup = await chrome.runtime.sendMessage({ type: 'setup.status' });
+    if (setup?.error) throw new Error(setup.error);
+    if (!setup?.discordReady) throw new Error('Discord parent/kid channels are not ready yet.');
+
+    const projects = await chrome.runtime.sendMessage({ type: 'setup.projects' });
+    if (projects?.error) throw new Error(projects.error);
+
+    const token = await chrome.runtime.sendMessage({ type: 'chatgpt.authToken' });
+    if (token?.error || !token?.authToken) throw new Error(token?.error || 'Could not prepare ChatGPT connection.');
+    await navigator.clipboard.writeText(token.authToken);
+
+    const opened = await chrome.runtime.sendMessage({ type: 'setup.openDeveloperMode' });
+    if (opened?.error) throw new Error(opened.error);
+
+    setNotice(`Auto setup updated ${projects.linked || 0} kid project${projects.linked === 1 ? '' : 's'}, applied learner instructions, copied the ChatGPT auth token, and opened ChatGPT setup.`);
+    await render();
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    autoSetup.disabled = false;
+  }
 });
 
 chatgptConnect.addEventListener('click', async () => {

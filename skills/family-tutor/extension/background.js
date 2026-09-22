@@ -22,6 +22,7 @@ function defaultHealth() {
 }
 
 const OAUTH_ORIGIN = 'https://family-tutor.qili2.com';
+const LEARNER_PROFILE_TEMPLATE_URL = `${OAUTH_ORIGIN}/v1/learner-profile-template`;
 const OAUTH_CLIENT_ID = 'family-tutor-extension';
 const OAUTH_RESOURCE = `${OAUTH_ORIGIN}/ws`;
 
@@ -138,7 +139,12 @@ async function fetchSetupStatus() {
   const response = await fetch(`${OAUTH_ORIGIN}/v1/setup/status`, { headers: { authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.message || result.error || 'Could not check Discord setup.');
-  return result;
+  if (Array.isArray(result.children)) {
+    availableChildren = result.children
+      .map((child) => ({ id: String(child?.id || ''), name: String(child?.name || child?.id || '') }))
+      .filter((child) => child.id);
+  }
+  return { ...result, children: availableChildren };
 }
 
 async function finishFamilySetup() {
@@ -165,6 +171,19 @@ async function fetchChatGptAuthToken() {
   return result.auth_token;
 }
 
+async function fetchLearnerProfileTemplate() {
+  const accessToken = await validExtensionAccessToken();
+  const response = await fetch(LEARNER_PROFILE_TEMPLATE_URL, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.template !== 'string' || !result.template.trim()) {
+    throw new Error(result.message || result.error || 'Could not load the learner Project Instructions template.');
+  }
+  return result;
+}
+
 const ACTION_ICON_PATHS = Object.freeze({
   connected: { 16: 'icons/connected-16.png', 32: 'icons/connected-32.png', 48: 'icons/connected-48.png', 128: 'icons/connected-128.png' },
   recovering: { 16: 'icons/recovering-16.png', 32: 'icons/recovering-32.png', 48: 'icons/recovering-48.png', 128: 'icons/recovering-128.png' },
@@ -175,7 +194,7 @@ const ACTION_ICON_PATHS = Object.freeze({
 async function syncActionHealth(health) {
   const state = ACTION_ICON_PATHS[health?.state] ? health.state : HEALTH_STATES.DISCONNECTED;
   const kidCount = availableChildren.length;
-  const badgeText = kidCount > 999 ? '999+' : String(kidCount);
+  const badgeText = kidCount === 0 ? '' : kidCount > 999 ? '999+' : String(kidCount);
   const badgeColors = {
     connected: '#22c55e',
     recovering: '#f59e0b',
@@ -743,6 +762,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       reconcile: () => reconcileFamilyTabs(),
       report: reportBindings,
       syncHealth: syncActionHealth,
+      getLearnerProfileTemplate: fetchLearnerProfileTemplate,
     })).then((result) => respond({ ok: true, ...result }))
       .catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;

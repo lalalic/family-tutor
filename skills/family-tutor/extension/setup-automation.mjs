@@ -20,32 +20,58 @@ export async function setupKidProjects({
   reconcile,
   report,
   syncHealth,
+  getLearnerProfileTemplate,
 }) {
-  const missing = children.filter((child) => !current.bindings?.[child.id]);
-  if (!missing.length) return { linked: children.length, created: 0, reused: 0 };
+  if (!children.length) return { linked: 0, created: 0, reused: 0 };
 
   const tab = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: true });
   if (!Number.isInteger(tab?.id)) throw new Error('Could not open ChatGPT.');
   await waitForTabComplete(tab.id);
 
   let bindings = { ...current.bindings };
+  const profile = await getLearnerProfileTemplate();
   let created = 0;
   let reused = 0;
 
-  for (const child of missing) {
-    const request = { type: 'setup.project.ensure', name: child.name || child.id };
-    let result;
-    try {
-      result = await chrome.tabs.sendMessage(tab.id, request);
-    } catch {
-      await chrome.tabs.reload(tab.id);
-      await waitForTabComplete(tab.id);
-      result = await chrome.tabs.sendMessage(tab.id, request);
+  for (const child of children) {
+    const learnerName = child.name || child.id;
+    const existingProjectId = bindings[child.id];
+    const request = { type: 'setup.project.ensure', name: learnerName };
+    let result = existingProjectId
+      ? {
+          projectId: existingProjectId,
+          projectUrl: `https://chatgpt.com/g/${existingProjectId}/project`,
+          reused: true,
+        }
+      : null;
+
+    if (!result) {
+      try {
+        result = await chrome.tabs.sendMessage(tab.id, request);
+      } catch {
+        await chrome.tabs.reload(tab.id);
+        await waitForTabComplete(tab.id);
+        result = await chrome.tabs.sendMessage(tab.id, request);
+      }
     }
 
     if (result?.error || !result?.projectId) {
-      throw new Error(result?.error || `Could not create the ChatGPT Project for ${child.name || child.id}.`);
+      throw new Error(result?.error || `Could not create the ChatGPT Project for ${learnerName}.`);
     }
+
+    if (result.projectUrl) {
+      await chrome.tabs.update(tab.id, { url: result.projectUrl });
+      await waitForTabComplete(tab.id);
+    }
+
+    const instructions = profile.template
+      .replaceAll('<NAME>', learnerName)
+      .replaceAll('<PREFERRED_NAME>', learnerName);
+    const instructionsResult = await chrome.tabs.sendMessage(tab.id, {
+      type: 'setup.project.instructions',
+      instructions,
+    });
+    if (instructionsResult?.error) throw new Error(instructionsResult.error);
 
     bindings = bindChild(bindings, child.id, result.projectId);
     if (result.reused) reused += 1;
