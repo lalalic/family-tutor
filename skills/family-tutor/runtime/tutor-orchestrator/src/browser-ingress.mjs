@@ -13,10 +13,11 @@ export async function handleBrowserChildMessage(message, child, browserBridge, {
   const audioAttachments = attachments.filter(isAudioAttachment);
   const passthroughAttachments = attachments.filter((attachment) => !isAudioAttachment(attachment));
   const voiceTranscript = audioAttachments.length ? await transcribe(audioAttachments) : null;
+  const contextMessage = [incoming, voiceTranscript].filter(Boolean).join('\n\n');
 
   await browserBridge.enqueue({
     childId: child.id,
-    text: buildKidContext({ childId: child.id, text: incoming, voiceTranscript }),
+    text: buildKidContext({ childId: child.id, childName: child.name, text: contextMessage, attachments: passthroughAttachments }),
     attachments: passthroughAttachments,
     origin: {
       channelId: message.channelId,

@@ -12,7 +12,7 @@ test('browser child ingress sends a typed kid context instead of raw Discord tex
     channel: { isThread: () => false },
   };
 
-  await handleBrowserChildMessage(message, { id: 'sammy' }, {
+  await handleBrowserChildMessage(message, { id: 'sammy', name: 'Sammy' }, {
     enqueue: async (value) => calls.push(value),
   });
 
@@ -22,7 +22,7 @@ test('browser child ingress sends a typed kid context instead of raw Discord tex
   assert.ok(match);
   assert.deepEqual(JSON.parse(match[1]), {
     type: 'kid',
-    data: { childId: 'sammy', studentMessage: 'Help me with fractions' },
+    data: { sender: { channelId: 'sammy', name: 'Sammy' }, message: 'Help me with fractions', attachments: [] },
   });
   assert.equal(calls[0].childId, 'sammy');
   assert.deepEqual(calls[0].origin, {
@@ -36,10 +36,11 @@ test('browser child ingress forwards image-only turns with typed context', async
   const calls = [];
   const image = { id: 'img1', url: 'https://cdn.example/image.png', name: 'homework.png', contentType: 'image/png', size: 1234 };
   const message = { content: '', attachments: new Map([['img1', image]]), channelId: 'maggie-channel', id: 'image-message', channel: { isThread: () => false } };
-  await handleBrowserChildMessage(message, { id: 'maggie' }, { enqueue: async (value) => calls.push(value) });
+  await handleBrowserChildMessage(message, { id: 'maggie', name: 'Maggie' }, { enqueue: async (value) => calls.push(value) });
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].attachments, [{ url: image.url, name: image.name, mimeType: image.contentType, size: image.size }]);
-  assert.match(calls[0].text, /"childId":"maggie"/);
+  assert.match(calls[0].text, /"channelId":"maggie"/);
+  assert.match(calls[0].text, /"name":"homework.png"/);
 });
 
 test('browser child ingress transcribes audio into context and does not attach the audio file', async () => {
@@ -47,7 +48,7 @@ test('browser child ingress transcribes audio into context and does not attach t
   const audio = { id: 'aud1', url: 'https://cdn.example/voice.ogg', name: 'voice-message.ogg', contentType: 'audio/ogg', size: 4321 };
   const message = { content: '', attachments: new Map([['aud1', audio]]), channelId: 'maggie-channel', id: 'audio-message', channel: { isThread: () => false } };
   const transcribed=[];
-  await handleBrowserChildMessage(message, { id: 'maggie' }, { enqueue: async (value) => calls.push(value) }, {
+  await handleBrowserChildMessage(message, { id: 'maggie', name: 'Maggie' }, { enqueue: async (value) => calls.push(value) }, {
     transcribe: async (attachments) => { transcribed.push(attachments); return 'Please help me with question seven.'; },
   });
   assert.equal(calls.length, 1);
@@ -58,7 +59,7 @@ test('browser child ingress transcribes audio into context and does not attach t
   assert.ok(match);
   assert.deepEqual(JSON.parse(match[1]), {
     type: 'kid',
-    data: { childId: 'maggie', studentMessage: '', voiceTranscript: 'Please help me with question seven.' },
+    data: { sender: { channelId: 'maggie', name: 'Maggie' }, message: 'Please help me with question seven.', attachments: [] },
   });
 });
 
@@ -67,8 +68,8 @@ test('browser child ingress transcribes audio while preserving non-audio files',
   const audio={id:'aud1',url:'https://cdn.example/voice.ogg',name:'voice.ogg',contentType:'audio/ogg',size:10};
   const pdf={id:'pdf1',url:'https://cdn.example/homework.pdf',name:'homework.pdf',contentType:'application/pdf',size:20};
   const message={content:'Look at this too',attachments:new Map([['aud1',audio],['pdf1',pdf]]),channelId:'sammy-channel',id:'mixed-message',channel:{isThread:()=>false}};
-  await handleBrowserChildMessage(message,{id:'sammy'},{enqueue:async value=>calls.push(value)},{transcribe:async()=> 'My voice note.'});
+  await handleBrowserChildMessage(message,{id:'sammy',name:'Sammy'},{enqueue:async value=>calls.push(value)},{transcribe:async()=> 'My voice note.'});
   assert.deepEqual(calls[0].attachments,[{url:pdf.url,name:pdf.name,mimeType:pdf.contentType,size:pdf.size}]);
-  assert.match(calls[0].text,/"voiceTranscript":"My voice note\."/);
-  assert.match(calls[0].text,/"studentMessage":"Look at this too"/);
+  assert.match(calls[0].text,/"message":"Look at this too\\n\\nMy voice note\."/);
+  assert.match(calls[0].text,/"name":"homework.pdf"/);
 });

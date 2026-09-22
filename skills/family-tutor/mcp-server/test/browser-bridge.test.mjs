@@ -35,7 +35,7 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"help"}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"help","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[{url:`http://127.0.0.1:${source.address().port}/x.png`,name:'x.png',mimeType:'image/png',size:13}],
       origin:{channelId:'thread-1',threadId:'thread-1',messageId:'m1'},
     });
@@ -102,13 +102,13 @@ test('preserves parent context data and adds only the active correlation id',asy
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"childId":"kid1","parentMessage":"review fractions"}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"sender":{"channelId":"parents","name":"Parents"},"message":"remind @kid1(channelId=kid1) to review fractions","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
       origin:{channelId:'parent-channel-id',messageId:'parent-message-id'},
     });
     const payload=await message;
     const envelope=JSON.parse(payload.prompt.match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/)[1]);
     assert.equal(envelope.type,'parent');
-    assert.deepEqual(envelope.data,{childId:'kid1',parentMessage:'review fractions',correlationId:payload.correlation.correlationId});
+    assert.deepEqual(envelope.data,{sender:{channelId:'parents',name:'Parents'},message:'remind @kid1(channelId=kid1) to review fractions',attachments:[],correlationId:payload.correlation.correlationId});
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
     const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
     assert.equal(firstReply.duplicate,undefined);
@@ -383,7 +383,7 @@ test('request_new_thread immediately tells the bound extension to rotate',async(
     socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'2.6.1'}));
     const nextType=(type)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`${type} timeout`)),1500);const onMessage=data=>{const value=JSON.parse(data.toString());if(value.type!==type)return;clearTimeout(timer);socket.off('message',onMessage);resolve(value);};socket.on('message',onMessage);});
     const turnMessage=nextType('turn');
-    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"one"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"one","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
     const turn=await turnMessage;
     const rotateMessage=nextType('thread.rotate');
     const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'request_new_thread',arguments:{correlationId:turn.correlation.correlationId,reason:'context long'}}});
@@ -436,7 +436,7 @@ test('preserves Discord audio attachment for ChatGPT upload',async()=>{
   try{
     await bridge.enqueue({
       childId:'kid1',
-      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":""}}\n</FAMILY_TUTOR_CONTEXT>',
+      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[{url:'https://cdn.discord.test/voice-message.ogg',name:'voice-message.ogg',mimeType:'audio/ogg',size:13}],
       origin:{channelId:'sammy',messageId:'audio-1'},
     });
@@ -465,7 +465,7 @@ test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
   }).start();
   try{
     await bridge.enqueue({
-      childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"check these"}}\n</FAMILY_TUTOR_CONTEXT>',
+      childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"check these","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[
         {url:'https://cdn.discord.test/homework.pdf',name:'homework.pdf',mimeType:'application/pdf',size:9},
         {url:'https://cdn.discord.test/scores.csv',name:'scores.csv',size:8},

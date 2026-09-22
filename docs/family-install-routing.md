@@ -91,7 +91,7 @@ sequenceDiagram
 `FAMILY_TUTOR_CONTEXT` contains semantic data only:
 
 ```json
-{"type":"parent","data":{"childId":"sammy","parentMessage":"remind #sammy to do homework"}}
+{"type":"parent","data":{"sender":{"channelId":"parents","name":"Parents"},"message":"remind @sammy(channelId=sammy) to do homework","attachments":[]}}
 ```
 
 The same unchanged parent message is delivered to every explicitly mentioned child's thread. Each thread interprets only its own part.
@@ -136,4 +136,4 @@ Security properties:
 
 ## Voice messages
 
-Discord voice/audio attachments are not forwarded to ChatGPT as files. The runtime first transcribes them with the hosted `family-tutor-asr` Cloudflare Worker using Workers AI `whisper-large-v3-turbo`, removes the audio attachment, and sends only `voiceTranscript` inside the typed kid context. Requests are signed with a local P-256 private key; the Worker stores only the corresponding public key. Other attachment types continue to pass through unchanged. Local MLX Whisper remains an optional development/offline fallback.
+Discord voice/audio attachments are not forwarded to ChatGPT as files. The runtime first transcribes them with the hosted `family-tutor-asr` Cloudflare Worker using Workers AI `whisper-large-v3-turbo`, removes the audio attachment, and appends the transcript to `data.message` inside the typed context. Requests are signed with a local P-256 private key; the Worker stores only the corresponding public key. Other attachment types continue to pass through unchanged. Local MLX Whisper remains an optional development/offline fallback.

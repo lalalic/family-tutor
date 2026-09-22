@@ -8,17 +8,26 @@ export function runtimeContext(type, data) {
   return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({ type, data })}\n</FAMILY_TUTOR_CONTEXT>`;
 }
 
-export function buildKidContext({ childId, text, voiceTranscript = null }) {
-  return runtimeContext('kid', {
-    childId,
-    studentMessage: String(text || ''),
-    ...(voiceTranscript ? { voiceTranscript: String(voiceTranscript) } : {}),
+export function attachmentMetadata(attachments = []) {
+  return attachments.map((attachment) => ({
+    name: String(attachment?.name || 'attachment'),
+    mimeType: String(attachment?.mimeType || attachment?.contentType || ''),
+    size: Number(attachment?.size || 0),
+  }));
+}
+
+function messageContext(type,{ senderChannelId, senderName, message, attachments = [] }) {
+  return runtimeContext(type, {
+    sender: { channelId: String(senderChannelId || ''), name: String(senderName || '') },
+    message: String(message || ''),
+    attachments: attachmentMetadata(attachments),
   });
 }
 
-export function buildParentContext({ childId, text }) {
-  return runtimeContext('parent', {
-    childId,
-    parentMessage: String(text || ''),
-  });
+export function buildKidContext({ childId, childName, text, attachments = [] }) {
+  return messageContext('kid', { senderChannelId: childId, senderName: childName || childId, message: text, attachments });
+}
+
+export function buildParentContext({ text, attachments = [] }) {
+  return messageContext('parent', { senderChannelId: 'parents', senderName: 'Parents', message: text, attachments });
 }

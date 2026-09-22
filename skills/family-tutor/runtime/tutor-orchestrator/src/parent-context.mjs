@@ -18,8 +18,9 @@ function normalizeWhitespace(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-export function renderParentNaturalText(input, channelMentionId, childName) {
-  return normalizeWhitespace(String(input || '').replaceAll(`<#${channelMentionId}>`, childName));
+export function renderParentNaturalText(input, channelMentionId, childChannelId) {
+  const logicalMention = `@${childChannelId}(channelId=${childChannelId})`;
+  return normalizeWhitespace(String(input || '').replaceAll(`<#${channelMentionId}>`, logicalMention));
 }
 
 
@@ -48,8 +49,8 @@ export function parseParentMessage(text, children) {
   return { command: 'parent-query', channelMentionId, value: input };
 }
 
-export function buildParentContextPrompt({ child, command, value, authorId, messageId, memory='' }) {
-  return buildParentRuntimeContext({ childId: child.id, text: value });
+export function buildParentContextPrompt({ text, attachments = [] }) {
+  return buildParentRuntimeContext({ text, attachments });
 }
 
 export const statusCommand = { name: 'status', description: 'Show a privacy-filtered learning status for one child or all children' };
@@ -77,7 +78,7 @@ export function validateChildChannel(child, channel) {
 }
 
 export function buildSlashStatusPrompt({ child, memory }) {
-  return buildParentRuntimeContext({ childId: child.id, text: 'status' });
+  return buildParentRuntimeContext({ text: `status @${child.id}(channelId=${child.id})` });
 }
 
 export function formatSlashStatus(child, text) {
