@@ -194,7 +194,7 @@ const ACTION_ICON_PATHS = Object.freeze({
 async function syncActionHealth(health) {
   const state = ACTION_ICON_PATHS[health?.state] ? health.state : HEALTH_STATES.DISCONNECTED;
   const kidCount = availableChildren.length;
-  const badgeText = kidCount > 999 ? '999+' : String(kidCount);
+  const badgeText = kidCount === 0 ? '' : kidCount > 999 ? '999+' : String(kidCount);
   const badgeColors = {
     connected: '#22c55e',
     recovering: '#f59e0b',

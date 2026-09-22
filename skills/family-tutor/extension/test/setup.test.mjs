@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.11');
+  assert.equal(manifest.version,'2.6.12');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -70,6 +70,17 @@ test('popup refreshes Discord kids, links to hosted setup, and exposes auto setu
   assert.match(popupJs,/type: 'setup\.openDeveloperMode'/);
   assert.equal(fs.existsSync(path.join(root,'setup-help.html')),false);
   assert.equal(fs.existsSync(path.join(root,'setup-help.js')),false);
+});
+
+
+test('popup keeps refresh on the Kids row without a kid count, and zero kids clears the action badge',()=>{
+  const popup=fs.readFileSync(path.join(root,'popup.html'),'utf8');
+  const popupJs=fs.readFileSync(path.join(root,'popup.js'),'utf8');
+  const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
+  assert.match(popup,/section-head[\s\S]*<strong>Kids<\/strong>[\s\S]*id="refresh-kids"/);
+  assert.doesNotMatch(popup,/kid-count/);
+  assert.doesNotMatch(popupJs,/kidCount/);
+  assert.match(background,/kidCount === 0 \? ''/);
 });
 
 test('auto setup applies a learner-specific profile to every kid project',()=>{

@@ -34,9 +34,7 @@
   .dot.recovering{background:var(--amber)}
   .dot.error{background:var(--red)}
   .section-head{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
-  .section-title{display:flex;align-items:center;gap:4px}
   .section-head strong{font-size:13px}
-  .count{color:var(--muted);font-size:11px}
   .refresh-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;cursor:pointer;display:grid;place-items:center;color:var(--brand);font-size:16px;line-height:1}
   .refresh-btn:hover{background:var(--soft)}
   .refresh-btn:disabled{cursor:default;opacity:.55}
@@ -68,8 +66,8 @@
   </div>
 
   <div class="section-head">
-    <div class="section-title"><strong>Kids</strong><button id="refresh-kids" class="refresh-btn" type="button" title="Refresh kids from Discord" aria-label="Refresh kids from Discord">↻</button></div>
-    <span id="kid-count" class="count"></span>
+    <strong>Kids</strong>
+    <button id="refresh-kids" class="refresh-btn" type="button" title="Refresh kids from Discord" aria-label="Refresh kids from Discord">↻</button>
   </div>
   <div id="children" class="kids"></div>
 

@@ -4,7 +4,6 @@ const childrenEl = document.querySelector('#children');
 const notice = document.querySelector('#notice');
 const statusDot = document.querySelector('#status-dot');
 const statusLabel = document.querySelector('#status-label');
-const kidCount = document.querySelector('#kid-count');
 const refreshKids = document.querySelector('#refresh-kids');
 const homeLink = document.querySelector('#home-link');
 const guideLink = document.querySelector('#guide-link');
@@ -48,7 +47,6 @@ async function render() {
   const current = await state();
   renderHealth(current);
   const kids = Array.isArray(current.children) ? current.children : [];
-  kidCount.textContent = `${kids.length} kid${kids.length === 1 ? '' : 's'}`;
   childrenEl.replaceChildren();
 
   if (!kids.length) {
