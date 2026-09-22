@@ -44,6 +44,11 @@ export function parseParentMessage(text, children) {
     const [commandName, ...commandValue] = withoutMention.split(/\s+/);
     return { command: commandName, channelMentionId, value: commandValue.join(' ').trim() };
   }
+  const naturalReminder = withoutMention.match(/^(?:(?:please|can you|could you|would you)\s+)*remind\s+(.*)$/i);
+  if (naturalReminder) {
+    const value = naturalReminder[1].replace(/^to\s+/i, '').trim();
+    return { command: '!remind', channelMentionId, value };
+  }
   if (!withoutMention) return null;
   return { command: 'parent-query', channelMentionId, value: input };
 }

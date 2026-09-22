@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildKidContext } from '../src/runtime-context.mjs';
-import { buildParentContextPrompt, buildSlashStatusPrompt, parseParentCommand } from '../src/parent-context.mjs';
+import { buildParentContextPrompt, buildSlashStatusPrompt, parseParentCommand, parseParentMessage } from '../src/parent-context.mjs';
 
 function envelope(prompt) {
   const match=String(prompt).match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/);
@@ -20,4 +20,14 @@ test('parent status and reminder commands stay parent-routed by their logical ta
   assert.deepEqual(parseParentCommand('!remind sammy review fractions'),{command:'!remind',childId:'sammy',value:'review fractions'});
   const status=envelope(buildSlashStatusPrompt({child:{id:'sammy',name:'Sammy'},memory:'private transcript'}));
   assert.deepEqual(status.data,{targetChild:'sammy',request:'status-command',message:'status'});
+});
+
+
+test('natural parent reminders route to the child and keep only confirmation in parents',()=>{
+  const parsed=parseParentMessage('remind <#1234567890> to do homework',[{id:'sammy',name:'Sammy'}]);
+  assert.deepEqual(parsed,{command:'!remind',channelMentionId:'1234567890',value:'do homework'});
+  const polite=parseParentMessage('please remind <#1234567890> to review quadratic equations',[{id:'sammy',name:'Sammy'}]);
+  assert.deepEqual(polite,{command:'!remind',channelMentionId:'1234567890',value:'review quadratic equations'});
+  const prompt=envelope(buildParentContextPrompt({child:{id:'sammy',name:'Sammy'},command:parsed.command,value:parsed.value}));
+  assert.deepEqual(prompt,{type:'parent',data:{targetChild:'sammy',request:'reminder',message:'do homework'}});
 });
