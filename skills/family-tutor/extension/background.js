@@ -139,7 +139,12 @@ async function fetchSetupStatus() {
   const response = await fetch(`${OAUTH_ORIGIN}/v1/setup/status`, { headers: { authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.message || result.error || 'Could not check Discord setup.');
-  return result;
+  if (Array.isArray(result.children)) {
+    availableChildren = result.children
+      .map((child) => ({ id: String(child?.id || ''), name: String(child?.name || child?.id || '') }))
+      .filter((child) => child.id);
+  }
+  return { ...result, children: availableChildren };
 }
 
 async function finishFamilySetup() {

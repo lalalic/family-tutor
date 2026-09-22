@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.8');
+  assert.equal(manifest.version,'2.6.9');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -70,6 +70,7 @@ test('popup exposes Setup Help and the help page keeps auto setup optional',()=>
   assert.match(help,/Create one ChatGPT Project for each kid/);
   assert.match(help,/Check that everything is connected/);
   assert.match(help,/Send a test message/);
+  assert.match(help,/https:\/\/family-tutor\.qili2\.com\/setup/);
   assert.match(helpJs,/type:'setup\.projects'/);
   assert.match(helpJs,/type:'setup\.openDeveloperMode'/);
   assert.match(helpJs,/type:'chatgpt\.authToken'/);
@@ -96,6 +97,7 @@ test('setup waits for Discord readiness and finishes with channel greetings',()=
   const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
   const help=fs.readFileSync(path.join(root,'setup-help.js'),'utf8');
   assert.match(background,/\/v1\/setup\/status/);
+  assert.match(background,/availableChildren = result\.children/);
   assert.match(background,/\/v1\/setup\/finish/);
   assert.match(help,/Discord parent\/kid channels are not ready yet/);
   assert.match(help,/Waiting for the parent and kid Discord channels/);

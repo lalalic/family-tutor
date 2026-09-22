@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { renderSetupPage } from './setup-guide.mjs';
+import { renderPublicSetupPage, renderSetupPage } from './setup-guide.mjs';
 
 const MAX_ATTACHMENT_BYTES=25*1024*1024;
 const MAX_ATTACHMENTS=4;
@@ -660,10 +660,8 @@ export class BrowserBridge {
     }
     if(req.method==='GET'&&url.pathname==='/discord/callback'){
       const redirectOnboarding=(error='discord_install_failed')=>{
-        const target=new URL('/',this.publicOrigin);
-        target.searchParams.set('onboarding','discord');
+        const target=new URL('/setup',this.publicOrigin);
         target.searchParams.set('error',error);
-        target.hash='how';
         res.writeHead(302,{location:target.toString(),'cache-control':'no-store'}); return res.end();
       };
       const state=url.searchParams.get('state')||''; const stateRecord=this.discordOAuthStates.get(state); this.discordOAuthStates.delete(state);
@@ -699,12 +697,16 @@ export class BrowserBridge {
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
       }catch{return redirectOnboarding();}
     }
+    if(req.method==='GET'&&url.pathname==='/setup'){
+      const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||''}));
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
+    }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
     if(req.method==='GET'&&setupPage){
       const claim=decodeURIComponent(setupPage[1]);
       const record=this.#setupClaimRecord(claim);
       if(!record) return json(res,410,{error:'invalid_or_expired_claim'});
-      const html=renderSetupPage({claim,publicOrigin:this.publicOrigin,extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension-2.6.7.zip`,children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name)),consumed:Boolean(record.consumedAt)});
+      const html=renderSetupPage({claim,publicOrigin:this.publicOrigin,extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension-2.6.9.zip`,children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name)),consumed:Boolean(record.consumedAt)});
       const body=Buffer.from(html);
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'"}); return res.end(body);
     }
