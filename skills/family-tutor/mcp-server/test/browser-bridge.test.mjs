@@ -396,3 +396,33 @@ test('Discord callback verifies bot membership when OAuth client secret is unava
     if(priorBot===undefined) delete process.env.DISCORD_BOT_TOKEN; else process.env.DISCORD_BOT_TOKEN=priorBot;
   }
 });
+
+test('preserves Discord audio attachment for ChatGPT upload',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-audio-'));
+  const bridge=await new BrowserBridge({
+    instanceDir:root,
+    children:[{id:'kid1'}],
+    host:'127.0.0.1',
+    port:0,
+    replyToDiscord:async()=>{},
+    fetchImpl:async()=>new Response(Buffer.from('private-audio'),{status:200,headers:{'content-type':'audio/ogg'}}),
+  }).start();
+  try{
+    await bridge.enqueue({
+      childId:'kid1',
+      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":""}}\n</FAMILY_TUTOR_CONTEXT>',
+      attachments:[{url:'https://cdn.discord.test/voice-message.ogg',name:'voice-message.ogg',mimeType:'audio/ogg',size:13}],
+      origin:{channelId:'sammy',messageId:'audio-1'},
+    });
+    const turn=bridge.next('kid1');
+    assert.equal(turn.attachments.length,1);
+    assert.equal(turn.attachments[0].name,'1-voice-message.ogg');
+    assert.equal(turn.attachments[0].mimeType,'audio/ogg');
+    const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
+    const audioUrl=new URL(turn.attachments[0].url); audioUrl.searchParams.set('token',token);
+    const audio=await fetch(audioUrl);
+    assert.equal(audio.status,200);
+    assert.equal(audio.headers.get('content-type'),'audio/ogg');
+    assert.equal(await audio.text(),'private-audio');
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});

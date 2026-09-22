@@ -6,19 +6,25 @@ import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const MAX_IMAGE_BYTES=12*1024*1024;
-const MAX_IMAGES=4;
+const MAX_AUDIO_BYTES=25*1024*1024;
+const MAX_ATTACHMENTS=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
 const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
 const SETUP_CLAIM_TTL_MS=10*60*1000;
 
-function safeName(name='image'){
-  return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'image';
+function safeName(name='attachment'){
+  return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'attachment';
 }
 function isImage(a){
   const type=String(a?.mimeType||a?.contentType||'').toLowerCase();
   return type.startsWith('image/')||/\.(png|jpe?g|webp|gif|heic|heif)$/i.test(a?.name||'');
 }
+function isAudio(a){
+  const type=String(a?.mimeType||a?.contentType||'').toLowerCase();
+  return type.startsWith('audio/')||/\.(mp3|m4a|aac|wav|ogg|oga|opus|webm|flac)$/i.test(a?.name||'');
+}
+function attachmentLimit(a){return isAudio(a)?MAX_AUDIO_BYTES:MAX_IMAGE_BYTES;}
 async function readJson(req,maxBytes=256*1024){
   const chunks=[]; let size=0;
   for await(const chunk of req){
@@ -328,18 +334,20 @@ export class BrowserBridge {
     if(!this.children.has(childId)) throw new Error('unknown child');
     const correlationId=crypto.randomUUID();
     const expiresAt=Date.now()+this.ttlMs;
-    const imageInputs=attachments.filter(isImage).slice(0,MAX_IMAGES);
+    const attachmentInputs=attachments.filter(input=>isImage(input)||isAudio(input)).slice(0,MAX_ATTACHMENTS);
     const blobDir=path.join(this.blobRoot,correlationId);
     const files=[];
-    if(imageInputs.length) await fsp.mkdir(blobDir,{recursive:true,mode:0o700});
+    if(attachmentInputs.length) await fsp.mkdir(blobDir,{recursive:true,mode:0o700});
     try{
-      for(let i=0;i<imageInputs.length;i++){
-        const input=imageInputs[i];
-        if(Number(input.size||0)>MAX_IMAGE_BYTES) throw new Error(`${input.name||'image'} exceeds 12 MB`);
+      for(let i=0;i<attachmentInputs.length;i++){
+        const input=attachmentInputs[i];
+        const limit=attachmentLimit(input);
+        const limitMb=Math.floor(limit/(1024*1024));
+        if(Number(input.size||0)>limit) throw new Error(`${input.name||'attachment'} exceeds ${limitMb} MB`);
         const response=await this.fetchImpl(input.url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(30_000)});
         if(!response.ok) throw new Error(`attachment download failed (${response.status})`);
         const bytes=Buffer.from(await response.arrayBuffer());
-        if(bytes.length>MAX_IMAGE_BYTES) throw new Error(`${input.name||'image'} exceeds 12 MB`);
+        if(bytes.length>limit) throw new Error(`${input.name||'attachment'} exceeds ${limitMb} MB`);
         const name=`${i+1}-${safeName(input.name)}`;
         await fsp.writeFile(path.join(blobDir,name),bytes,{mode:0o600});
         files.push({name,mimeType:input.mimeType||input.contentType||'application/octet-stream',size:bytes.length,url:`${this.endpoint()}/v1/blobs/${correlationId}/${encodeURIComponent(name)}`});
@@ -349,7 +357,7 @@ export class BrowserBridge {
       throw error;
     }
     const turn={correlationId,childId,text,attachments:files,origin:{channelId:origin.channelId,messageId:origin.messageId,threadId:origin.threadId||null},createdAt:new Date().toISOString()};
-    this.correlations.set(correlationId,{childId,origin:turn.origin,blobDir,expiresAt,reply,resolve:null,reject:null,timer:null});
+    this.correlations.set(correlationId,{childId,origin:turn.origin,blobDir,files,expiresAt,reply,resolve:null,reject:null,timer:null});
     const queue=this.queues.get(childId)||[];
     queue.push(turn);
     this.queues.set(childId,queue);
@@ -676,7 +684,8 @@ export class BrowserBridge {
       if(!state) return json(res,404,{error:'not found'});
       const filePath=path.join(state.blobDir,name);
       if(!fs.existsSync(filePath)) return json(res,404,{error:'not found'});
-      res.writeHead(200,{'content-type':'application/octet-stream','cache-control':'no-store'});
+      const metadata=(state.files||[]).find(file=>file.name===name);
+      res.writeHead(200,{'content-type':metadata?.mimeType||'application/octet-stream','cache-control':'no-store'});
       return fs.createReadStream(filePath).pipe(res);
     }
     return json(res,404,{error:'not found'});
