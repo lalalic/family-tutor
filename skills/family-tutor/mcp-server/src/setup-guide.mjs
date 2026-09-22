@@ -14,9 +14,9 @@ function channelTree(names=[]) {
   return [
     '<div class="channel-tree">',
     '<div class="server">⌄ &lt;your family Discord server&gt;</div>',
-    '<div class="channel"># parents <span>text channel · invite Neo</span></div>',
-    ...kids.map((name)=>`<div class="channel"># ${esc(name)} <span>text channel · invite Neo</span></div>`),
-    '<div class="channel"># … <span>one text channel per kid · invite Neo</span></div>',
+    '<div class="channel"># parents <span>text channel</span></div>',
+    ...kids.map((name)=>`<div class="channel"># ${esc(name)} <span>text channel</span></div>`),
+    '<div class="channel"># … <span>one text channel per kid</span></div>',
     '</div>',
   ].join('');
 }
@@ -34,7 +34,6 @@ export function setupPlan({ children = [], publicOrigin = 'https://family-tutor.
         { title:'Create or sign in to Discord', body:'Use the Discord account that will manage the family server.' },
         { title:'Create the family server', body:'Create one Discord server for the family if you do not already have one.' },
         { title:'Create text channels', html:channelTree(names) },
-        { title:'Invite Neo to every channel', body:'For the parents channel and every kid channel, add Neo so it can read and reply there. Do not use voice channels for these Family Tutor routes.' },
       ],
     },
     {
@@ -67,11 +66,12 @@ export function setupPlan({ children = [], publicOrigin = 'https://family-tutor.
     {
       id:'discord',
       title:'Add Family Tutor to Discord',
-      detail:'Authorize Family Tutor into the already-prepared family server. This creates the personalized setup claim only after the Discord prerequisites are ready.',
+      detail:'Authorize Neo / Family Tutor into the already-prepared family server once, then grant it access to the parents and kid text channels.',
       substeps:[
         { title:'Start authorization', html:`<p><a class="button" href="${esc(publicOrigin)}/discord/install">Add Family Tutor</a></p>` },
         { title:'Choose the family server', body:'In Discord, select the server that contains the parents channel and all kid channels.' },
-        { title:'Authorize Family Tutor', body:'Approve the requested Discord permissions. After authorization, Discord returns you to the personalized Family Tutor setup page.' },
+        { title:'Authorize Neo to the server', body:'Approve the requested Discord permissions. This adds the Neo / Family Tutor bot to the selected Discord server once. After authorization, Discord returns you to the personalized Family Tutor setup page.' },
+        { title:'Grant Neo access to each Family Tutor channel', body:'For #parents and every kid text channel, open Edit Channel → Permissions, add the Neo / Family Tutor bot or its server role, and allow View Channel, Send Messages, and Read Message History. Also allow any attachment/reaction permissions Family Tutor needs. You do not run the bot invite again for each channel.' },
       ],
     },
     {
@@ -196,7 +196,7 @@ export function codexSetupPrompt({ setupUrl, extensionUrl, children = [] } = {})
 Complete every step you safely can from that page. Expand each step's Detailed steps section and follow it exactly. Do not invent or use a second setup flow.
 
 Rules:
-- Discord account, family server, parents text channel, and every kid text channel are prerequisites.
+- Discord account, family server, parents text channel, and every kid text channel are prerequisites. Neo is authorized to the server afterward, then granted access to those channels through Discord permissions.
 - Use the user's existing signed-in Chrome, Discord, and ChatGPT sessions.
 - Never print, persist, or expose setup claims, auth/refresh tokens, Discord provider IDs, or child conversation content.
 - Stop only when Discord or ChatGPT requires an explicit human security/authorization confirmation.
