@@ -230,7 +230,7 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
     assert.equal(setupPage.status,200);
     const setupHtml=await setupPage.text();
-    assert.match(setupHtml,/\/downloads\/family-tutor-extension-2\.6\.5\.zip/);
+    assert.match(setupHtml,/\/downloads\/family-tutor-extension-2\.6\.6\.zip/);
     assert.match(setupHtml,/Load unpacked/);
     assert.equal(setupHtml.includes('guild-A'),false);
 

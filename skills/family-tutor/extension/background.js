@@ -1,4 +1,5 @@
 import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
+import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -694,6 +695,27 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+
+  if (message?.type === 'setup.openDeveloperMode') {
+    chrome.tabs.create({ url: CHATGPT_DEVELOPER_MODE_URL, active: true })
+      .then((tab) => respond({ ok: true, tabId: tab.id }))
+      .catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'setup.projects') {
+    settings().then((current) => setupKidProjects({
+      children: availableChildren,
+      current,
+      getSettings: settings,
+      save: (value) => chrome.storage.local.set(value),
+      reconcile: () => reconcileFamilyTabs(),
+      report: reportBindings,
+      syncHealth: syncActionHealth,
+    })).then((result) => respond({ ok: true, ...result }))
+      .catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
 
   if (message?.type === 'chatgpt.authToken') {
     fetchChatGptAuthToken().then((authToken) => respond({ ok: true, authToken })).catch((error) => respond({ error: safeErrorMessage(error) }));

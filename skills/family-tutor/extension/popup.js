@@ -12,6 +12,7 @@ const saveKid = document.querySelector('#save-kid');
 const cancelAdd = document.querySelector('#cancel-add');
 const reconnect = document.querySelector('#reconnect');
 const chatgptConnect = document.querySelector('#chatgpt-connect');
+const setupForMe = document.querySelector('#setup-for-me');
 const version = document.querySelector('#version');
 const recovery = document.querySelector('#recovery');
 
@@ -184,6 +185,11 @@ kidName.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeAddForm();
 });
 
+
+setupForMe.addEventListener('click', async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL('setup-help.html') });
+  window.close();
+});
 
 chatgptConnect.addEventListener('click', async () => {
   chatgptConnect.disabled = true;
