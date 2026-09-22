@@ -166,14 +166,14 @@ function normalizeStep(step, plan) {
 function renderStepNav({ plan, selected, baseUrl }) {
   return plan.map((item,index) => {
     const href = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}step=${encodeURIComponent(item.id)}`;
-    return `<a class="step-link${item.id===selected ? ' current' : ''}" href="${esc(href)}">${esc(item.title)}</a>`;
+    return `<a class="step-link${item.id===selected ? ' current' : ''}" href="${esc(href)}"><span>${index+1}</span>${esc(item.title)}</a>`;
   }).join('');
 }
 
 function renderSubsteps(item) {
   const substeps = item.substeps || [];
   if(!substeps.length) return '';
-  const rows = substeps.map((sub,index)=>`<li><strong>${index+1}. ${esc(sub.title)}</strong>${sub.html || `<p>${esc(sub.body||'')}</p>`}</li>`).join('');
+  const rows = substeps.map((sub)=>`<li><strong>${esc(sub.title)}</strong>${sub.html || `<p>${esc(sub.body||'')}</p>`}</li>`).join('');
   return `<details class="substeps"><summary>Detailed steps</summary><ol>${rows}</ol></details>`;
 }
 
@@ -183,7 +183,7 @@ function renderSteps({ plan, selected }) {
     const group = item.group && item.group !== lastGroup ? `<li class="group-title">${esc(item.group)}<span>The extension’s <strong>Auto Setup</strong> can try these ChatGPT steps first.</span></li>` : '';
     if(item.group) lastGroup = item.group;
     return `${group}<li id="step-${esc(item.id)}" class="step-card${item.id===selected ? ' current-step' : ''}">
-      <div class="step-head"><div><strong>${esc(item.title)}</strong><p>${esc(item.detail)}</p></div></div>
+      <div class="step-head"><span class="step-number">${index+1}</span><div><strong>${esc(item.title)}</strong><p>${esc(item.detail)}</p></div></div>
       ${renderSubsteps(item)}
     </li>`;
   }).join('');
@@ -218,8 +218,8 @@ function pageStyles(){
 *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,sans-serif;color:var(--ink);background:#fff}
 main{max-width:920px;margin:42px auto;padding:0 22px 60px}h1{font-size:34px;margin:0 0 12px}.muted{color:var(--muted)}
 .error{border:1px solid #fecaca;background:#fff7f7;color:var(--red);border-radius:14px;padding:14px 16px;margin:18px 0}.error p{margin:4px 0 0}
-.steps-nav{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}.step-link{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:6px 10px;text-decoration:none;color:var(--ink)}.step-link.current{border-color:var(--brand);background:#eaf7f8;color:#0b6067}
-.manual{margin-top:26px}.manual>ol{list-style:none;padding:0;margin:0}.step-card{margin:0 0 14px;padding:16px;border:1px solid var(--line);border-radius:14px}.step-head strong{font-size:16px}.step-head p{margin:4px 0;color:var(--muted)}.current-step{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+.steps-nav{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}.step-link{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:6px 10px;text-decoration:none;color:var(--ink)}.step-link span{font-weight:700}.step-link.current{border-color:var(--brand);background:#eaf7f8;color:#0b6067}
+.manual{margin-top:26px}.manual>ol{list-style:none;padding:0;margin:0}.step-card{margin:0 0 14px;padding:16px;border:1px solid var(--line);border-radius:14px}.step-head{display:flex;gap:12px;align-items:flex-start}.step-head strong{font-size:16px}.step-head p{margin:4px 0;color:var(--muted)}.step-number{flex:0 0 28px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--soft);font-weight:750}.current-step{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
 .substeps{margin:12px 0 0 40px;border-top:1px solid var(--line);padding-top:10px}.substeps summary{cursor:pointer;font-weight:650;color:var(--brand)}.substeps ol{margin:10px 0 0;padding-left:22px}.substeps li{margin:0 0 13px}.substeps p{margin:4px 0;color:var(--muted)}
 .group-title{list-style:none;margin:28px 0 12px;font-size:20px;font-weight:750}.group-title span{display:block;font-size:13px;font-weight:400;color:var(--muted);margin-top:2px}
 .channel-tree{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);border-radius:10px;padding:12px 14px;margin-top:7px}.channel-tree .server{font-weight:750}.channel-tree .channel{padding-left:22px;margin-top:6px}.channel-tree .channel span{color:var(--muted);font-family:system-ui,-apple-system,sans-serif;font-size:12px}
