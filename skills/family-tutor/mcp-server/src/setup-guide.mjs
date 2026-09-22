@@ -69,6 +69,37 @@ ${numbered}
 `;
 }
 
+export function renderPublicSetupPage({ publicOrigin, error = '' } = {}) {
+  const plan = setupPlan();
+  const steps = plan.map((step,index) => `<li><strong>${index+1}. ${esc(step.title)}</strong><p>${esc(step.detail)}</p></li>`).join('');
+  const errorText = error
+    ? `<section class="error"><strong>Discord setup was not completed.</strong><p>${esc(error === 'access_denied' ? 'Authorization was cancelled or denied. You can try Add Family Tutor again when ready.' : 'Return to the Discord step and try again.')}</p></section>`
+    : '';
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set up Family Tutor</title>
+<style>
+:root{color-scheme:light;--ink:#17211f;--muted:#68726f;--line:#e5e9e7;--brand:#14848d;--soft:#f6f8f7;--red:#b91c1c}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,sans-serif;color:var(--ink);background:#fff}
+main{max-width:820px;margin:42px auto;padding:0 22px 60px}h1{font-size:34px;margin:0 0 6px}.muted{color:var(--muted)}
+.error{border:1px solid #fecaca;background:#fff7f7;color:var(--red);border-radius:14px;padding:14px 16px;margin:20px 0}.error p{margin:4px 0 0}
+.manual{margin-top:26px}.manual li{margin:0 0 16px}.manual p{margin:4px 0;color:var(--muted)}
+a.button{display:inline-block;border-radius:9px;background:var(--brand);color:#fff;padding:10px 14px;text-decoration:none}
+</style>
+<main>
+  <p class="muted">Family Tutor setup</p>
+  <h1>Set up Family Tutor</h1>
+  <p>Follow the full setup path below. You can return to this page at any time.</p>
+  ${errorText}
+  <p><a class="button" href="${esc(publicOrigin)}/discord/install">Add Family Tutor to Discord</a></p>
+  <section class="manual">
+    <h2>Setup guide</h2>
+    <ol>${steps}</ol>
+  </section>
+</main>`;
+}
+
 export function renderSetupPage({ claim, publicOrigin, extensionUrl = `${publicOrigin}/downloads/family-tutor-extension-${EXTENSION_VERSION}.zip`, children = [], consumed = false } = {}) {
   const setupUrl = `${publicOrigin}/setup/${encodeURIComponent(claim)}`;
   const plan = setupPlan({ children });
