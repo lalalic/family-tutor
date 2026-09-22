@@ -693,12 +693,14 @@ export class BrowserBridge {
         const guildId=String(exchangeResult?.guild?.id||exchangeResult?.guildId||'');
         if(!guildId) throw new Error('Discord did not confirm the installed server.');
         await this.#bindGuild(guildId);
+        const setupStatus=this.getSetupStatus?await this.getSetupStatus():{discordReady:true};
+        if(!setupStatus.discordReady) return redirectOnboarding('discord_prerequisites_missing');
         const claim=this.#createSetupClaim();
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
       }catch{return redirectOnboarding();}
     }
     if(req.method==='GET'&&url.pathname==='/setup'){
-      const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||''}));
+      const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||'',step:url.searchParams.get('step')||''}));
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
@@ -706,14 +708,17 @@ export class BrowserBridge {
       const claim=decodeURIComponent(setupPage[1]);
       const record=this.#setupClaimRecord(claim);
       if(!record) return json(res,410,{error:'invalid_or_expired_claim'});
-      const html=renderSetupPage({claim,publicOrigin:this.publicOrigin,extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension-2.6.7.zip`,children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name)),consumed:Boolean(record.consumedAt)});
+      const html=renderSetupPage({claim,publicOrigin:this.publicOrigin,extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension.zip`,children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name)),consumed:Boolean(record.consumedAt),step:url.searchParams.get('step')||''});
       const body=Buffer.from(html);
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'"}); return res.end(body);
     }
     if(req.method==='POST'&&url.pathname==='/v1/setup/claim'){
       const origin=String(req.headers.origin||'');
       if(origin&&!this.extensionOrigins.has(origin)) return json(res,403,{error:'extension_required'});
-      const body=await readJson(req); const record=this.#consumeSetupClaim(body.claim);
+      const body=await readJson(req);
+      const setupStatus=this.getSetupStatus?await this.getSetupStatus():{discordReady:true};
+      if(!setupStatus.discordReady) return json(res,409,{error:'discord_prerequisites_missing',status:setupStatus});
+      const record=this.#consumeSetupClaim(body.claim);
       if(!record) return json(res,400,{error:'invalid_or_expired_claim'});
       return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:record.familyId}),refresh_token:this.#signExtensionRefreshToken(record.familyId),token_type:'Bearer',expires_in:3600,scope:'extension',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
     }

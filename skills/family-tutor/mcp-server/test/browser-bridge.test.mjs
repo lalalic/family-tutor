@@ -201,7 +201,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
 test('Discord install creates one-time family claim and family-scoped extension session',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-family-claim-'));
   const exchanges=[];
-  let setupState={discordReady:false,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:false},{id:'maggie',name:'Maggie',channelReady:false}]};
+  let setupState={discordReady:true,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:true},{id:'maggie',name:'Maggie',channelReady:true}]};
   const finishCalls=[];
   const bridge=await new BrowserBridge({
     instanceDir:root,children:[{id:'sammy',name:'Sammy'},{id:'maggie',name:'Maggie'}],host:'127.0.0.1',port:0,
@@ -241,7 +241,8 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const guideHtml=await guide.text();
     assert.match(guideHtml,/Set up Family Tutor/);
     assert.match(guideHtml,/Discord setup was not completed/);
-    assert.match(guideHtml,/Setup guide/);
+    assert.match(guideHtml,/Prepare Discord first/);
+    assert.match(guideHtml,/\?step=&lt;step&gt;/);
 
     const incompleteInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
     const incompleteState=new URL(incompleteInstall.headers.get('location')).searchParams.get('state');
@@ -257,10 +258,11 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
     assert.equal(setupPage.status,200);
     const setupHtml=await setupPage.text();
-    assert.match(setupHtml,/\/downloads\/family-tutor-extension-2\.6\.7\.zip/);
+    assert.match(setupHtml,/\/downloads\/family-tutor-extension\.zip/);
     assert.match(setupHtml,/Manual setup/);
     assert.match(setupHtml,/Setup with Codex/);
-    assert.match(setupHtml,/Copy setup instructions for Codex/);
+    assert.match(setupHtml,/Copy Codex setup instruction/);
+    assert.match(setupHtml,/Auto Setup/);
     assert.match(setupHtml,/ChatGPT Developer Mode/);
     assert.match(setupHtml,/https:\/\/family-tutor\.qili2\.com\/mcp/);
     assert.match(setupHtml,/Sammy/);
@@ -270,6 +272,12 @@ test('Discord install creates one-time family claim and family-scoped extension 
 
     const wrongClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:'wrong-'+claim})});
     assert.equal(wrongClaim.status,400);
+
+    setupState={discordReady:false,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:false},{id:'maggie',name:'Maggie',channelReady:false}]};
+    const blockedClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm','content-type':'application/json'},body:JSON.stringify({claim})});
+    assert.equal(blockedClaim.status,409);
+    assert.equal((await blockedClaim.json()).error,'discord_prerequisites_missing');
+    setupState={discordReady:true,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:true},{id:'maggie',name:'Maggie',channelReady:true}]};
 
     const claimResponse=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{
       method:'POST',headers:{origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm','content-type':'application/json'},body:JSON.stringify({claim}),
@@ -283,6 +291,7 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.ok(accessPayload.family_id);
     assert.equal(JSON.stringify(session).includes('guild-A'),false);
 
+    setupState={discordReady:false,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:false},{id:'maggie',name:'Maggie',channelReady:false}]};
     const statusWaiting=await fetch(`${bridge.endpoint()}/v1/setup/status`,{headers:{authorization:`Bearer ${session.access_token}`}});
     assert.equal(statusWaiting.status,200);
     assert.equal((await statusWaiting.json()).discordReady,false);
