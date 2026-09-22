@@ -103,3 +103,32 @@ childId -> extension activeThreadId -> deliver to ChatGPT
 ```
 
 This keeps the backend deterministic: **one intelligent agent per child; transport does not become another agent.**
+
+
+## Automatic family browser claim
+
+The public install CTA now starts at `/discord/install` rather than embedding a raw Discord authorization URL. The hosted Family Tutor service creates a short-lived OAuth state, sends the parent to Discord, and accepts the Discord callback only once. The callback binds the selected Discord server to the local Family Installation without exposing the Discord server ID to the browser UI or model-facing APIs.
+
+```mermaid
+sequenceDiagram
+  participant P as Parent browser
+  participant FT as Family Tutor
+  participant D as Discord
+  participant E as Family Tutor extension
+
+  P->>FT: GET /discord/install
+  FT->>D: OAuth authorize + one-time state
+  D->>FT: /discord/callback (code, selected guild)
+  FT->>FT: bind/reuse Family Installation
+  FT-->>P: /setup/<short-lived claim>
+  E->>FT: POST /v1/setup/claim
+  FT-->>E: family-scoped access + refresh token + kids
+  E->>E: store session and show kids ready to link
+```
+
+Security properties:
+- setup claims are random, short-lived, and single-use; only their hash is held in memory while pending;
+- the durable installation stores an opaque `familyId` plus a keyed hash of the Discord guild ID, not the raw guild ID;
+- extension access and refresh tokens carry the Family Installation scope and are rejected by a different installation;
+- reinstalling the same Discord server reuses the Family Installation, while attempting to bind a different server to the same per-family runtime is rejected;
+- ChatGPT MCP pairing remains a separate step and is intentionally not changed by this flow.

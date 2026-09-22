@@ -70,3 +70,10 @@ The toolbar badge shows the number of children currently bound to ChatGPT Projec
 ## Hosted connection
 
 Extension 2.4.0 uses the hosted bridge by default and obtains its extension session through OAuth/PKCE in the popup. Click **Connect Family Tutor**. The extension opens the Family Tutor OAuth/PKCE flow using Chrome Identity, exchanges the one-time authorization code for an extension-scoped session token, stores the extension access/refresh session in extension-local storage, silently refreshes the short-lived access token when needed, and then connects to `wss://family-tutor.qili2.com/ws`. Users do not copy or manage a family token. A hosted connection is not considered ready until the server authenticates the extension session and every expected child binding has reported `tab.bind`.
+
+
+### Automatic family claim (2.6.2+)
+
+The normal hosted setup path no longer asks a parent to copy a token or manually start extension OAuth. After **Add to Discord**, Family Tutor redirects to `/setup/<short-lived-claim>`. Extension 2.6.2 recognizes that page, redeems the one-time claim, receives a family-scoped access/refresh session plus the configured learner names, and reconnects automatically. The popup then lists those learners so the parent only needs to link or relink each learner to the current ChatGPT Project/thread.
+
+The setup page never receives the Discord guild ID, internal family ID, or long-lived credentials. Popup OAuth remains a relink/fallback path after the server already has a Family Installation.
