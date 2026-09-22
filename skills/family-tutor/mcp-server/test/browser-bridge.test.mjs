@@ -184,62 +184,108 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('extension OAuth/PKCE issues a public-client session accepted by hosted websocket',async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-hosted-ws-'));
-  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{}}).start();
+test('Discord install creates one-time family claim and family-scoped extension session',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-family-claim-'));
+  const exchanges=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'sammy',name:'Sammy'},{id:'maggie',name:'Maggie'}],host:'127.0.0.1',port:0,
+    token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{},
+    discordOAuthExchange:async value=>{exchanges.push(value);return {guild:{id:value.hintedGuildId}};},
+  }).start();
   let socket;
   try{
-    const verifier=crypto.randomBytes(32).toString('base64url');
-    const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
-    const redirectUri='https://cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org/family-tutor';
-    const authorize=new URL(`${bridge.endpoint()}/oauth/authorize`);
-    authorize.searchParams.set('response_type','code');
-    authorize.searchParams.set('client_id','family-tutor-extension');
-    authorize.searchParams.set('redirect_uri',redirectUri);
-    authorize.searchParams.set('scope','extension');
-    authorize.searchParams.set('resource','https://family-tutor.qili2.com/ws');
-    authorize.searchParams.set('state','ext-state');
-    authorize.searchParams.set('code_challenge',challenge);
-    authorize.searchParams.set('code_challenge_method','S256');
-    const authorization=await fetch(authorize,{redirect:'manual'});
-    assert.equal(authorization.status,302);
-    const callback=new URL(authorization.headers.get('location'));
-    assert.equal(callback.origin,'https://cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org');
-    assert.equal(callback.searchParams.get('state'),'ext-state');
-    const code=callback.searchParams.get('code');
-    assert.ok(code);
+    const install=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    assert.equal(install.status,302);
+    const discord=new URL(install.headers.get('location'));
+    assert.equal(discord.hostname,'discord.com');
+    assert.equal(discord.searchParams.get('client_id'),'1489316184578068755');
+    assert.equal(discord.searchParams.get('permissions'),'68608');
+    assert.match(discord.searchParams.get('scope'),/identify/);
+    assert.match(discord.searchParams.get('scope'),/bot/);
+    const state=discord.searchParams.get('state');
+    assert.ok(state);
 
-    const form=new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:'family-tutor-extension',code_verifier:verifier,resource:'https://family-tutor.qili2.com/ws'});
-    const tokenResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
-    assert.equal(tokenResponse.status,200);
-    const token=await tokenResponse.json();
-    assert.equal(token.scope,'extension');
-    assert.ok(token.access_token.startsWith('ft1.'));
-    assert.ok(token.refresh_token.startsWith('ftr1.'));
+    const callback=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(state)}&code=discord-code&guild_id=guild-A`,{redirect:'manual'});
+    assert.equal(callback.status,302);
+    assert.equal(exchanges.length,1);
+    const setup=new URL(callback.headers.get('location'));
+    assert.equal(setup.origin,'https://family-tutor.qili2.com');
+    assert.match(setup.pathname,/^\/setup\/[A-Za-z0-9_-]+$/);
+    assert.equal(setup.href.includes('guild-A'),false);
+    const claim=decodeURIComponent(setup.pathname.split('/').pop());
 
-    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:token.refresh_token,client_id:'family-tutor-extension',resource:'https://family-tutor.qili2.com/ws'});
+    const wrongClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:'wrong-'+claim})});
+    assert.equal(wrongClaim.status,400);
+
+    const claimResponse=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{
+      method:'POST',headers:{origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm','content-type':'application/json'},body:JSON.stringify({claim}),
+    });
+    assert.equal(claimResponse.status,200);
+    const session=await claimResponse.json();
+    assert.deepEqual(session.children,[{id:'maggie',name:'Maggie'},{id:'sammy',name:'Sammy'}]);
+    assert.ok(session.access_token.startsWith('ft1.'));
+    assert.ok(session.refresh_token.startsWith('ftr1.'));
+    const accessPayload=JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString('utf8'));
+    assert.ok(accessPayload.family_id);
+    assert.equal(JSON.stringify(session).includes('guild-A'),false);
+
+    const replay=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
+    assert.equal(replay.status,400);
+
+    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:session.refresh_token,client_id:'family-tutor-extension',resource:'https://family-tutor.qili2.com/ws'});
     const refreshResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
     assert.equal(refreshResponse.status,200);
     const refreshed=await refreshResponse.json();
-    assert.equal(refreshed.scope,'extension');
-    assert.ok(refreshed.access_token.startsWith('ft1.'));
+    const refreshedPayload=JSON.parse(Buffer.from(refreshed.access_token.split('.')[1],'base64url').toString('utf8'));
+    assert.equal(refreshedPayload.family_id,accessPayload.family_id);
 
     socket=new WebSocket(bridge.websocketEndpoint(),{origin:'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm',headers:{Host:'family-tutor.qili2.com'}});
-    const first=await new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>reject(new Error('hosted auth prompt timeout')),1500);
-      socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});
-      socket.once('error',reject);
-    });
+    const first=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('hosted auth prompt timeout')),1500);socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});socket.once('error',reject);});
     assert.equal(first.type,'bridge.auth.required');
     socket.send(JSON.stringify({type:'bridge.auth',token:refreshed.access_token}));
-    const ready=await new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>reject(new Error('hosted ready timeout')),1500);
-      socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});
-      socket.once('error',reject);
-    });
+    const ready=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('hosted ready timeout')),1500);socket.once('message',data=>{clearTimeout(timer);resolve(JSON.parse(data.toString()));});socket.once('error',reject);});
     assert.equal(ready.type,'bridge.ready');
-    assert.deepEqual(ready.children,[{id:'kid1',name:'kid1'}]);
-  }finally{socket?.close(); await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
+    assert.deepEqual(ready.children,[{id:'maggie',name:'Maggie'},{id:'sammy',name:'Sammy'}]);
+
+    const relink=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const relinkState=new URL(relink.headers.get('location')).searchParams.get('state');
+    const sameGuild=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(relinkState)}&code=discord-code-2&guild_id=guild-A`,{redirect:'manual'});
+    assert.equal(sameGuild.status,302);
+    const claim2=decodeURIComponent(new URL(sameGuild.headers.get('location')).pathname.split('/').pop());
+    const relinkSessionResponse=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:claim2})});
+    assert.equal(relinkSessionResponse.status,200);
+    const relinkSession=await relinkSessionResponse.json();
+    const relinkPayload=JSON.parse(Buffer.from(relinkSession.access_token.split('.')[1],'base64url').toString('utf8'));
+    assert.equal(relinkPayload.family_id,accessPayload.family_id);
+
+    const other=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const otherState=new URL(other.headers.get('location')).searchParams.get('state');
+    const wrongGuild=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(otherState)}&code=discord-code-3&guild_id=guild-B`,{redirect:'manual'});
+    assert.equal(wrongGuild.status,409);
+
+    const secondRoot=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-family-claim-2-'));
+    const second=await new BrowserBridge({instanceDir:secondRoot,children:[{id:'other'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{},discordOAuthExchange:async value=>({guild:{id:value.hintedGuildId}})}).start();
+    try{
+      const secondInstall=await fetch(`${second.endpoint()}/discord/install`,{redirect:'manual'});
+      const secondState=new URL(secondInstall.headers.get('location')).searchParams.get('state');
+      await fetch(`${second.endpoint()}/discord/callback?state=${encodeURIComponent(secondState)}&code=second-code&guild_id=guild-B`,{redirect:'manual'});
+      const crossRefresh=await fetch(`${second.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
+      assert.equal(crossRefresh.status,400);
+    }finally{await second.stop();fs.rmSync(secondRoot,{recursive:true,force:true});}
+
+    const expiredInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const expiredState=new URL(expiredInstall.headers.get('location')).searchParams.get('state');
+    const expiredCallback=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(expiredState)}&code=expired-code&guild_id=guild-A`,{redirect:'manual'});
+    const expiredClaim=decodeURIComponent(new URL(expiredCallback.headers.get('location')).pathname.split('/').pop());
+    for(const record of bridge.setupClaims.values()) record.expiresAt=0;
+    const expired=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:expiredClaim})});
+    assert.equal(expired.status,400);
+
+    const persisted=JSON.parse(fs.readFileSync(path.join(root,'.browser-bridge','family-installation.json'),'utf8'));
+    assert.ok(persisted.familyId);
+    assert.ok(persisted.guildKey);
+    assert.equal(JSON.stringify(persisted).includes('guild-A'),false);
+  }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
 
 
@@ -314,4 +360,30 @@ test('request_new_thread immediately tells the bound extension to rotate',async(
     await bridge.reply(turn.correlation.correlationId,'done');
     await turnPromise;
   }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('Discord callback verifies bot membership when OAuth client secret is unavailable',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-bot-verify-'));
+  const priorSecret=process.env.DISCORD_CLIENT_SECRET;
+  const priorBot=process.env.DISCORD_BOT_TOKEN;
+  delete process.env.DISCORD_CLIENT_SECRET;
+  process.env.DISCORD_BOT_TOKEN='test-bot-token';
+  const requests=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{},
+    fetchImpl:async(url,options={})=>{requests.push({url:String(url),authorization:options.headers?.authorization});return {ok:true,json:async()=>({id:'guild-A'})};},
+  }).start();
+  try{
+    const install=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const state=new URL(install.headers.get('location')).searchParams.get('state');
+    const callback=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(state)}&code=opaque-code&guild_id=guild-A`,{redirect:'manual'});
+    assert.equal(callback.status,302);
+    assert.equal(requests.length,1);
+    assert.match(requests[0].url,/\/guilds\/guild-A$/);
+    assert.equal(requests[0].authorization,'Bot test-bot-token');
+  }finally{
+    await bridge.stop();fs.rmSync(root,{recursive:true,force:true});
+    if(priorSecret===undefined) delete process.env.DISCORD_CLIENT_SECRET; else process.env.DISCORD_CLIENT_SECRET=priorSecret;
+    if(priorBot===undefined) delete process.env.DISCORD_BOT_TOKEN; else process.env.DISCORD_BOT_TOKEN=priorBot;
+  }
 });

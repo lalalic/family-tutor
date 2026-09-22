@@ -10,11 +10,11 @@ function safeChildren(store, familyId) {
   return (store.snapshot().families?.[familyId]?.children || []).map(child => child.childId).sort();
 }
 
-function kidContext(childId, correlationId, text) {
-  return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({
-    type: 'kid',
-    data: { childId, correlationId, studentMessage: String(text || '') },
-  })}\n</FAMILY_TUTOR_CONTEXT>`;
+function familyContext(actor, childId, text) {
+  const data = actor === 'kid'
+    ? { childId, studentMessage: String(text || '') }
+    : { childId, parentMessage: String(text || '') };
+  return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({ type: actor, data })}\n</FAMILY_TUTOR_CONTEXT>`;
 }
 
 export function createHostedExtensionRelay({ store, provider, path = '/extension', turnTtlMs = 15 * 60 * 1000, clock = Date.now } = {}) {
@@ -59,7 +59,7 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
     return {
       type: 'turn',
       childId: turn.childId,
-      prompt: kidContext(turn.childId, turn.correlationId, turn.text),
+      prompt: familyContext(turn.actor, turn.childId, turn.text),
       correlation: { correlationId: turn.correlationId },
       attachments: [],
     };
@@ -71,8 +71,9 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
     socket.send(JSON.stringify(payload(turn)));
   }
 
-  async function ingest({ route, providerChannelId, text = '', messageId = null }) {
-    if (!route || route.destinationType !== 'child' || !route.childId) throw new Error('only child Discord destinations can start tutor turns');
+  async function ingest({ route, providerChannelId, text = '', messageId = null, actor = 'kid' }) {
+    if (!route || !route.childId) throw new Error('a child route is required to start a tutor turn');
+    if (!['kid', 'parent'].includes(actor)) throw new Error('actor must be kid or parent');
     const correlationId = randomUUID();
     const turn = {
       correlationId,
@@ -81,6 +82,7 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
       providerChannelId: required(providerChannelId, 'providerChannelId'),
       messageId,
       text: String(text || ''),
+      actor,
       expiresAt: clock() + turnTtlMs,
     };
     correlations.set(correlationId, turn);

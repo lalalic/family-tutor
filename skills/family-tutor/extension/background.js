@@ -139,7 +139,7 @@ async function syncActionHealth(health) {
   await chrome.action.setIcon({ path: ACTION_ICON_PATHS[state] });
   await chrome.action.setBadgeText({ text: badgeText });
   await chrome.action.setBadgeBackgroundColor({ color: badgeColors[state] });
-  await chrome.action.setTitle({ title: `Family Tutor · ${state} · ${configuredKids} configured kid${configuredKids === 1 ? '' : 's'}` });
+  await chrome.action.setTitle({ title: `Family Tutor · ${state} · ${kidCount} configured kid${kidCount === 1 ? '' : 's'}` });
 }
 
 async function updateHealth(patch) {
@@ -631,6 +631,40 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
       }
       respond({ ok: true, base64: btoa(binary), mimeType: response.headers.get('content-type') || message.mimeType || 'application/octet-stream' });
+    })().catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'family.setup.claim') {
+    (async () => {
+      const claim = String(message.claim || '').trim();
+      if (!claim) throw new Error('Missing Family Tutor setup claim.');
+      const response = await fetch(`${OAUTH_ORIGIN}/v1/setup/claim`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claim }),
+        cache: 'no-store',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.access_token || !result.refresh_token) throw new Error(result.message || result.error || 'Family Tutor setup could not be completed.');
+      availableChildren = Array.isArray(result.children)
+        ? result.children.map((child) => ({ id: String(child?.id || ''), name: String(child?.name || child?.id || '') })).filter((child) => child.id)
+        : [];
+      const validIds = new Set(availableChildren.map((child) => child.id));
+      const current = await settings();
+      const bindings = Object.fromEntries(Object.entries(current.bindings || {}).filter(([childId]) => validIds.has(childId)));
+      const threadUrls = canonicalThreadUrls(bindings, current.threadUrls || {});
+      await chrome.storage.local.set({
+        bridgeUrl: DEFAULT_BRIDGE_URL,
+        bridgeToken: result.access_token,
+        bridgeRefreshToken: result.refresh_token,
+        bindings,
+        threadUrls,
+      });
+      if (socket) { try { socket.close(); } catch {} socket = null; }
+      await updateHealth({ state: HEALTH_STATES.RECOVERING, lastError: null, recoveryCount: 0 });
+      connect().catch(() => {});
+      respond({ ok: true, children: availableChildren });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }

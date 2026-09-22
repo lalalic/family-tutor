@@ -10,6 +10,7 @@ const MAX_IMAGES=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
 const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
+const SETUP_CLAIM_TTL_MS=10*60*1000;
 
 function safeName(name='image'){
   return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'image';
@@ -55,7 +56,7 @@ function contextWithCorrelation(prompt,correlationId){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
@@ -89,6 +90,11 @@ export class BrowserBridge {
     this.oauthClientSecretFile=path.join(this.root,'oauth-client-secret');
     this.oauthClientSecret=null;
     this.oauthCodes=new Map();
+    this.discordOAuthStates=new Map();
+    this.setupClaims=new Map();
+    this.installationFile=path.join(this.root,'family-installation.json');
+    this.familyInstallation=null;
+    this.discordOAuthExchange=discordOAuthExchange;
   }
 
   async start(){
@@ -96,6 +102,7 @@ export class BrowserBridge {
     this.token=this.configuredToken||await this.#loadOrCreateToken();
     if(this.token.length<24) throw new Error('browser bridge token must be at least 24 characters');
     this.oauthClientSecret=await this.#loadOrCreateOAuthClientSecret();
+    this.familyInstallation=await this.#loadFamilyInstallation();
     this.server=http.createServer((req,res)=>this.#handle(req,res).catch(error=>{
       console.error('[family-tutor] browser bridge request failed',error);
       if(!res.headersSent) json(res,500,{error:'bridge request failed'});
@@ -143,6 +150,47 @@ export class BrowserBridge {
     }
   }
 
+
+  async #loadFamilyInstallation(){
+    try{
+      const value=JSON.parse(await fsp.readFile(this.installationFile,'utf8'));
+      if(value?.familyId&&value?.guildKey) return {familyId:String(value.familyId),guildKey:String(value.guildKey)};
+    }catch{}
+    return null;
+  }
+  async #saveFamilyInstallation(value){
+    await fsp.mkdir(this.root,{recursive:true,mode:0o700});
+    const tmp=`${this.installationFile}.tmp`;
+    await fsp.writeFile(tmp,JSON.stringify(value,null,2)+'\n',{mode:0o600});
+    await fsp.rename(tmp,this.installationFile);
+    this.familyInstallation=value;
+    return value;
+  }
+  #guildKey(guildId){return crypto.createHmac('sha256',this.token).update(`guild:${guildId}`).digest('base64url');}
+  async #bindGuild(guildId){
+    const guildKey=this.#guildKey(guildId);
+    if(this.familyInstallation){
+      if(!timingSafeEqualText(this.familyInstallation.guildKey,guildKey)) throw new Error('This Family Tutor installation is already linked to another Discord server.');
+      return this.familyInstallation;
+    }
+    return this.#saveFamilyInstallation({familyId:crypto.randomUUID(),guildKey});
+  }
+  #familyId(){return this.familyInstallation?.familyId||null;}
+  #createSetupClaim(){
+    if(!this.#familyId()) throw new Error('Family Tutor installation is not linked.');
+    const claim=crypto.randomBytes(32).toString('base64url');
+    const digest=crypto.createHash('sha256').update(claim).digest('base64url');
+    this.setupClaims.set(digest,{familyId:this.#familyId(),expiresAt:Date.now()+SETUP_CLAIM_TTL_MS});
+    return claim;
+  }
+  #consumeSetupClaim(claim){
+    const digest=crypto.createHash('sha256').update(String(claim||'')).digest('base64url');
+    const record=this.setupClaims.get(digest);
+    this.setupClaims.delete(digest);
+    if(!record||record.expiresAt<Date.now()||record.familyId!==this.#familyId()) return null;
+    return record;
+  }
+
   #oauthResource(){return `${this.publicOrigin}/mcp`;}
   #extensionResource(){return `${this.publicOrigin}/ws`;}
   #oauthMetadataUrl(){return `${this.publicOrigin}/.well-known/oauth-protected-resource`;}
@@ -157,8 +205,8 @@ export class BrowserBridge {
       return false;
     }catch{return false;}
   }
-  #signAccessToken({scope='tutor',resource=this.#oauthResource(),clientId=this.oauthClientId,expiresIn=3600}={}){
-    const payload=b64url(JSON.stringify({iss:this.publicOrigin,aud:resource,client_id:clientId,scope,exp:Math.floor(Date.now()/1000)+expiresIn}));
+  #signAccessToken({scope='tutor',resource=this.#oauthResource(),clientId=this.oauthClientId,expiresIn=3600,familyId=null}={}){
+    const payload=b64url(JSON.stringify({iss:this.publicOrigin,aud:resource,client_id:clientId,scope,...(familyId?{family_id:familyId}:{}),exp:Math.floor(Date.now()/1000)+expiresIn}));
     const signature=crypto.createHmac('sha256',this.token).update(`ft1.${payload}`).digest('base64url');
     return `ft1.${payload}.${signature}`;
   }
@@ -173,9 +221,12 @@ export class BrowserBridge {
     }catch{return false;}
   }
   #verifyAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'});}
-  #verifyExtensionAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'});}
-  #signExtensionRefreshToken(expiresIn=180*24*60*60){
-    const payload=b64url(JSON.stringify({iss:this.publicOrigin,client_id:this.extensionOAuthClientId,scope:'extension_refresh',exp:Math.floor(Date.now()/1000)+expiresIn}));
+  #verifyExtensionAccessToken(token){
+    if(!this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'})) return false;
+    try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return Boolean(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
+  }
+  #signExtensionRefreshToken(familyId,expiresIn=180*24*60*60){
+    const payload=b64url(JSON.stringify({iss:this.publicOrigin,client_id:this.extensionOAuthClientId,scope:'extension_refresh',family_id:familyId,exp:Math.floor(Date.now()/1000)+expiresIn}));
     const signature=crypto.createHmac('sha256',this.token).update(`ftr1.${payload}`).digest('base64url');
     return `ftr1.${payload}.${signature}`;
   }
@@ -186,7 +237,7 @@ export class BrowserBridge {
     if(!timingSafeEqualText(parts[2],expected)) return false;
     try{
       const payload=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
-      return payload.iss===this.publicOrigin&&payload.client_id===this.extensionOAuthClientId&&payload.scope==='extension_refresh'&&Number(payload.exp)>Math.floor(Date.now()/1000);
+      return payload.iss===this.publicOrigin&&payload.client_id===this.extensionOAuthClientId&&payload.scope==='extension_refresh'&&payload.family_id===this.#familyId()&&Number(payload.exp)>Math.floor(Date.now()/1000);
     }catch{return false;}
   }
   #mcpAuthorized(req){
@@ -241,7 +292,7 @@ export class BrowserBridge {
     const grantType=form.get('grant_type');
     if(grantType==='refresh_token'){
       if(credentials.id!==this.extensionOAuthClientId||!this.#verifyExtensionRefreshToken(form.get('refresh_token'))) return json(res,400,{error:'invalid_grant'});
-      return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId}),token_type:'Bearer',expires_in:3600,scope:'extension'});
+      return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:this.#familyId()}),token_type:'Bearer',expires_in:3600,scope:'extension'});
     }
     if(grantType!=='authorization_code') return json(res,400,{error:'unsupported_grant_type'});
     const code=form.get('code')||''; const record=this.oauthCodes.get(code); this.oauthCodes.delete(code);
@@ -250,8 +301,10 @@ export class BrowserBridge {
     const derived=crypto.createHash('sha256').update(verifier).digest('base64url');
     if(!verifier||!timingSafeEqualText(derived,record.challenge)) return json(res,400,{error:'invalid_grant'});
     const resource=form.get('resource')||record.resource; if(resource!==record.resource) return json(res,400,{error:'invalid_target'});
-    const response={access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId}),token_type:'Bearer',expires_in:3600,scope:record.scope};
-    if(record.clientId===this.extensionOAuthClientId) response.refresh_token=this.#signExtensionRefreshToken();
+    const familyId=record.clientId===this.extensionOAuthClientId?this.#familyId():null;
+    if(record.clientId===this.extensionOAuthClientId&&!familyId) return json(res,409,{error:'family_setup_required'});
+    const response={access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId,familyId}),token_type:'Bearer',expires_in:3600,scope:record.scope};
+    if(record.clientId===this.extensionOAuthClientId) response.refresh_token=this.#signExtensionRefreshToken(familyId);
     return json(res,200,response);
   }
 
@@ -490,7 +543,7 @@ export class BrowserBridge {
     if(method==='ping') return {jsonrpc:'2.0',id,result:{}};
     if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[
       {name:'reply_to_discord',title:'Reply to Discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor reply…','openai/toolInvocation/invoked':'Family Tutor reply sent'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},text:{type:'string',minLength:1,maxLength:12000,description:'Student-facing reply text to send to the originating Discord message.'},final:{type:'boolean',default:true,description:'Set false for a progress update and true for the final reply.'}}}},
-      {name:'request_new_thread',title:'Refresh Tutor Context',description:'Request that Family Tutor transparently use a fresh ChatGPT thread for this learner starting with the next Discord turn. Use only when the current conversation context has become long enough to reduce tutoring quality.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
+      {name:'request_new_thread',title:'Refresh Tutor Context',description:'Request that Family Tutor transparently use a fresh ChatGPT thread for this learner starting with the next Discord turn. Use when the current conversation is very long, accumulated unrelated or stale context is reducing tutoring quality, many separate homework sessions or topics have built up, or a natural session boundary arrives after substantial conversation. Do not use for a single topic change, a short conversation, a temporary response/tool error, or when preserving the immediate conversation context is important. Request rollover only once for the same transition.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
     ]}};
     if(method==='tools/call'){
       try{
@@ -517,6 +570,61 @@ export class BrowserBridge {
     if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic','none'],scopes_supported:['tutor','extension']});
     if(req.method==='GET'&&url.pathname==='/oauth/authorize') return this.#oauthAuthorize(url,res);
     if(req.method==='POST'&&url.pathname==='/oauth/token') return this.#oauthToken(req,res);
+    if(req.method==='GET'&&url.pathname==='/discord/install'){
+      const clientId=process.env.DISCORD_CLIENT_ID||'1489316184578068755';
+      const redirectUri=process.env.DISCORD_REDIRECT_URI||`${this.publicOrigin}/discord/callback`;
+      const state=crypto.randomBytes(24).toString('base64url');
+      this.discordOAuthStates.set(state,{expiresAt:Date.now()+10*60*1000});
+      const target=new URL('https://discord.com/oauth2/authorize');
+      target.searchParams.set('client_id',clientId); target.searchParams.set('response_type','code');
+      target.searchParams.set('redirect_uri',redirectUri); target.searchParams.set('scope','identify bot applications.commands');
+      target.searchParams.set('permissions','68608'); target.searchParams.set('state',state);
+      res.writeHead(302,{location:target.toString(),'cache-control':'no-store'}); return res.end();
+    }
+    if(req.method==='GET'&&url.pathname==='/discord/callback'){
+      const state=url.searchParams.get('state')||''; const stateRecord=this.discordOAuthStates.get(state); this.discordOAuthStates.delete(state);
+      if(!stateRecord||stateRecord.expiresAt<Date.now()) return json(res,400,{error:'invalid_setup_state'});
+      const code=url.searchParams.get('code')||''; const hintedGuildId=url.searchParams.get('guild_id')||'';
+      if(!code) return json(res,400,{error:'discord_install_incomplete'});
+      try{
+        let exchangeResult;
+        if(this.discordOAuthExchange) exchangeResult=await this.discordOAuthExchange({code,hintedGuildId,redirectUri:process.env.DISCORD_REDIRECT_URI||`${this.publicOrigin}/discord/callback`});
+        else{
+          const secret=process.env.DISCORD_CLIENT_SECRET||''; const clientId=process.env.DISCORD_CLIENT_ID||'1489316184578068755';
+          if(secret){
+            const form=new URLSearchParams({client_id:clientId,client_secret:secret,grant_type:'authorization_code',code,redirect_uri:process.env.DISCORD_REDIRECT_URI||`${this.publicOrigin}/discord/callback`});
+            const exchange=await this.fetchImpl('https://discord.com/api/v10/oauth2/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
+            if(!exchange.ok) throw new Error('Discord authorization failed.');
+            exchangeResult=await exchange.json();
+          }else{
+            const botToken=process.env.DISCORD_BOT_TOKEN||'';
+            if(!botToken||!hintedGuildId) throw new Error('Discord installation could not be verified.');
+            const guild=await this.fetchImpl(`https://discord.com/api/v10/guilds/${encodeURIComponent(hintedGuildId)}`,{headers:{authorization:`Bot ${botToken}`}});
+            if(!guild.ok) throw new Error('Discord installation could not be verified.');
+            const confirmed=await guild.json();
+            if(String(confirmed?.id||'')!==hintedGuildId) throw new Error('Discord installation did not match the selected server.');
+            exchangeResult={guild:{id:hintedGuildId}};
+          }
+        }
+        const guildId=String(exchangeResult?.guild?.id||exchangeResult?.guildId||'');
+        if(!guildId) throw new Error('Discord did not confirm the installed server.');
+        await this.#bindGuild(guildId);
+        const claim=this.#createSetupClaim();
+        res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
+      }catch(error){return json(res,409,{error:'discord_install_failed',message:String(error?.message||error)});}
+    }
+    const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
+    if(req.method==='GET'&&setupPage){
+      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><body><main><h1>Finish Family Tutor setup</h1><p id="status">Connecting this browser to your family…</p></main></body>`);
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'"}); return res.end(body);
+    }
+    if(req.method==='POST'&&url.pathname==='/v1/setup/claim'){
+      const origin=String(req.headers.origin||'');
+      if(origin&&origin!==FAMILY_TUTOR_EXTENSION_ORIGIN) return json(res,403,{error:'extension_required'});
+      const body=await readJson(req); const record=this.#consumeSetupClaim(body.claim);
+      if(!record) return json(res,400,{error:'invalid_or_expired_claim'});
+      return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:record.familyId}),refresh_token:this.#signExtensionRefreshToken(record.familyId),token_type:'Bearer',expires_in:3600,scope:'extension',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
+    }
     if(req.method==='POST'&&url.pathname==='/mcp/reply'){
       if(!this.#authorized(req,url)) return json(res,401,{error:'unauthorized'});
       const body=await readJson(req);

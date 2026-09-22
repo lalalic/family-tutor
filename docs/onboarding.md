@@ -18,7 +18,7 @@ provider IDs, bearer tokens, and child messages inside trusted adapters.
 4. Choose one parent destination and one private child destination per learner.
    The flow accepts logical keys only; the trusted Discord adapter resolves
    those keys to provider channel IDs.
-5. Configure extension 2.3.0+ with the hosted `wss://family-tutor.qili2.com/extension` endpoint and the scoped family session token, then open each learner's ChatGPT Project and bind its Project ID to exactly one child. The hosted relay must confirm every expected child socket before the Project step is ready; the flow never stores conversation transcripts.
+5. After **Add to Discord**, let extension 2.6.2+ automatically redeem the short-lived Family Tutor setup claim. The extension receives only the family-scoped session and configured learner names. For each learner, visit the learner's ChatGPT Project/thread and use **Link**. The hosted relay must confirm every expected child socket before the Project step is ready; the flow never stores conversation transcripts.
 6. Run acceptance. The probe verifies same-child replies, concise parent
    telemetry, and rejection of cross-family/cross-child routes.
 
