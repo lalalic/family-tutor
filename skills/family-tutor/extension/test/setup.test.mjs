@@ -43,3 +43,15 @@ test('popup can copy a dedicated ChatGPT auth token without exposing extension c
   assert.match(html,/Connect ChatGPT/);
   assert.doesNotMatch(popup,/bridgeToken|bridgeRefreshToken/);
 });
+
+test('thread rollover clears the active thread and binds the next durable conversation',()=>{
+  const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
+  const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
+  assert.match(background,/async function rotateActiveThread\(childId\)/);
+  assert.match(background,/chrome\.tabs\.update\(tab\.id, \{ url: `https:\/\/chatgpt\.com\/g\/\$\{projectId\}\/project` \}\)/);
+  assert.match(background,/delete nextThreadUrls\[childId\]/);
+  assert.match(background,/chrome\.storage\.local\.set\(\{ threadUrls: nextThreadUrls \}\)/);
+  assert.match(background,/type: 'thread\.rotated'/);
+  assert.match(content,/type: 'turn\.ack'/);
+  assert.match(content,/threadUrl: location\.href/);
+});
