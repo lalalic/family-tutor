@@ -9,7 +9,7 @@ const STEP_ORDER = Object.freeze([
 
 const STEP_LABELS = Object.freeze({
   prerequisites: 'Check prerequisites',
-  chatgpt: 'Connect ChatGPT Developer Mode and Family Tutor MCP',
+  chatgpt: 'Connect ChatGPT and Family Tutor',
   discord: 'Invite the shared Family Tutor bot',
   destinations: 'Bind parent and child destinations',
   projects: 'Bind each child to a ChatGPT Project',

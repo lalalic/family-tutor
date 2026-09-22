@@ -11,6 +11,7 @@ const kidName = document.querySelector('#kid-name');
 const saveKid = document.querySelector('#save-kid');
 const cancelAdd = document.querySelector('#cancel-add');
 const reconnect = document.querySelector('#reconnect');
+const chatgptConnect = document.querySelector('#chatgpt-connect');
 const version = document.querySelector('#version');
 const recovery = document.querySelector('#recovery');
 
@@ -181,6 +182,19 @@ saveKid.addEventListener('click', async () => {
 kidName.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') saveKid.click();
   if (event.key === 'Escape') closeAddForm();
+});
+
+
+chatgptConnect.addEventListener('click', async () => {
+  chatgptConnect.disabled = true;
+  const result = await chrome.runtime.sendMessage({ type: 'chatgpt.authToken' });
+  chatgptConnect.disabled = false;
+  if (result?.error || !result?.authToken) {
+    setNotice(result?.error || 'Could not prepare ChatGPT connection.', true);
+    return;
+  }
+  await navigator.clipboard.writeText(result.authToken);
+  setNotice('ChatGPT auth token copied. Paste it into the Family Tutor authentication field in ChatGPT.');
 });
 
 reconnect.addEventListener('click', async () => {

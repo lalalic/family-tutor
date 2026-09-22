@@ -51,4 +51,4 @@ remain in the private family runtime.
 
 ## Correlated Discord replies
 
-When the hosted product configures the extension relay, MCP discovery also exposes `reply_to_discord(correlationId, text, final?)`. The correlation is opaque and server-issued. The handler verifies the authenticated family (and child-scoped session when applicable) owns that correlation before replying to the trusted originating Discord channel. The tool never accepts a channel id, family id, or provider id.
+When the hosted product configures the extension relay, MCP discovery also exposes `reply_to_discord`. The tool never accepts a raw Discord/provider id or family id. `correlationId` replies to the active inbound turn. A parent message may also contain an opaque Family Tutor `channelId` handle in an `@name(channelId=...)` target mention; `reply_to_discord` may use that opaque handle for an explicitly requested outbound message.

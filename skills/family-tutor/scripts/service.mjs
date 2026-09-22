@@ -17,7 +17,7 @@ function parseEnvFile(file){
   return Object.fromEntries(fs.readFileSync(file,'utf8').split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!line.startsWith('#')&&line.includes('=')).map(line=>{const i=line.indexOf('=');return [line.slice(0,i).trim(),line.slice(i+1).trim()];}));
 }
 const defaultEnvFile=path.join(process.env.HOME||'', '.config','family-tutor','asr.env');
-const serviceEnv={...process.env,...parseEnvFile(process.env.FAMILY_TUTOR_ENV_FILE||defaultEnvFile),FAMILY_TUTOR_CONFIG:configFile};
+const serviceEnv={...process.env,...parseEnvFile(process.env.FAMILY_TUTOR_ENV_FILE||defaultEnvFile),FAMILY_TUTOR_CONFIG:configFile,FAMILY_TUTOR_E2E_PROBE:process.env.FAMILY_TUTOR_E2E_PROBE==='1'?'1':'0'};
 if(!fs.existsSync(path.join(runtime,'node_modules','discord.js'))){
   const install=spawnSync('npm',['install','--omit=dev','--no-fund','--no-audit'],{cwd:runtime,stdio:'inherit',env:process.env});
   if(install.status) process.exit(install.status);

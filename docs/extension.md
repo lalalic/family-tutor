@@ -74,6 +74,11 @@ Extension 2.4.0 uses the hosted bridge by default and obtains its extension sess
 
 ### Automatic family claim (2.6.2+)
 
-The normal hosted setup path no longer asks a parent to copy a token or manually start extension OAuth. After **Add to Discord**, Family Tutor redirects to `/setup/<short-lived-claim>`. Extension 2.6.2 recognizes that page, redeems the one-time claim, receives a family-scoped access/refresh session plus the configured learner names, and reconnects automatically. The popup then lists those learners so the parent only needs to link or relink each learner to the current ChatGPT Project/thread.
+The normal hosted setup path no longer asks a parent to copy a token or manually start extension OAuth. After **Add to Discord**, Family Tutor redirects to `/setup/<short-lived-claim>`. Extension 2.6.5 recognizes that page, redeems the one-time claim, receives a family-scoped access/refresh session plus the configured learner names, and reconnects automatically. The popup then lists those learners so the parent only needs to link or relink each learner to the current ChatGPT Project/thread.
 
 The setup page never receives the Discord guild ID, internal family ID, or long-lived credentials. Popup OAuth remains a relink/fallback path after the server already has a Family Installation.
+
+
+## ChatGPT connection token
+
+Some ChatGPT install surfaces request an auth token instead of initiating OAuth. After the family installation is connected, the extension exposes **Connect ChatGPT**. It requests a dedicated family-scoped MCP bearer token from the hosted service and copies it only after an explicit user click. This token is distinct from the extension access/refresh session, contains no Discord provider ID, expires after 30 days, and is accepted only by the Family Tutor MCP resource. OAuth remains supported when the ChatGPT install surface offers it.

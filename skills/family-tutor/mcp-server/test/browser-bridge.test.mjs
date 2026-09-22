@@ -48,6 +48,11 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
     assert.equal(payload.correlation.correlationId.length>20,true);
     assert.equal(payload.origin,undefined);
+    const threadUrl='https://chatgpt.com/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/project/c/thread-one';
+    socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:payload.correlation,threadUrl}));
+    await new Promise(resolve=>setTimeout(resolve,10));
+    const statusWithAck=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
+    assert.equal(statusWithAck.threadAckHashes.kid1,crypto.createHash('sha256').update(threadUrl).digest('hex'));
     const blobUrl=new URL(payload.attachments[0].url);
     blobUrl.searchParams.set('token',payload.attachments[0].token);
     const blob=await fetch(blobUrl); assert.equal(await blob.text(),'private-image');
@@ -222,6 +227,12 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.match(setup.pathname,/^\/setup\/[A-Za-z0-9_-]+$/);
     assert.equal(setup.href.includes('guild-A'),false);
     const claim=decodeURIComponent(setup.pathname.split('/').pop());
+    const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
+    assert.equal(setupPage.status,200);
+    const setupHtml=await setupPage.text();
+    assert.match(setupHtml,/\/downloads\/family-tutor-extension\.zip/);
+    assert.match(setupHtml,/Load unpacked/);
+    assert.equal(setupHtml.includes('guild-A'),false);
 
     const wrongClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:'wrong-'+claim})});
     assert.equal(wrongClaim.status,400);
@@ -237,6 +248,21 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const accessPayload=JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString('utf8'));
     assert.ok(accessPayload.family_id);
     assert.equal(JSON.stringify(session).includes('guild-A'),false);
+
+    const manualUnauthorized=await fetch(`${bridge.endpoint()}/v1/chatgpt-auth-token`,{method:'POST'});
+    assert.equal(manualUnauthorized.status,401);
+    const manualResponse=await fetch(`${bridge.endpoint()}/v1/chatgpt-auth-token`,{method:'POST',headers:{authorization:`Bearer ${session.access_token}`}});
+    assert.equal(manualResponse.status,200);
+    const manual=await manualResponse.json();
+    assert.ok(manual.auth_token.startsWith('ft1.'));
+    assert.equal(manual.expires_in,30*24*60*60);
+    const manualPayload=JSON.parse(Buffer.from(manual.auth_token.split('.')[1],'base64url').toString('utf8'));
+    assert.equal(manualPayload.family_id,accessPayload.family_id);
+    assert.equal(manualPayload.scope,'tutor');
+    assert.equal(manualPayload.aud,'https://family-tutor.qili2.com/mcp');
+    const manualMcp=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:99,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'manual-token-test',version:'1'}}})});
+    assert.equal(manualMcp.status,200);
+    assert.equal((await manualMcp.json()).result.serverInfo.name,'family-tutor-browser-bridge');
 
     const replay=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
     assert.equal(replay.status,400);
@@ -280,6 +306,11 @@ test('Discord install creates one-time family claim and family-scoped extension 
       await fetch(`${second.endpoint()}/discord/callback?state=${encodeURIComponent(secondState)}&code=second-code&guild_id=guild-B`,{redirect:'manual'});
       const crossRefresh=await fetch(`${second.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
       assert.equal(crossRefresh.status,400);
+      const crossManualToken=await fetch(`${second.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:100,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'cross-family-test',version:'1'}}})});
+      assert.equal(crossManualToken.status,401);
+      const firstHandle=bridge.channelHandle('guild-a-child-channel');
+      second.channelHandle('guild-b-child-channel');
+      await assert.rejects(second.send(firstHandle,'must not cross families'),/unknown channel id/);
     }finally{await second.stop();fs.rmSync(secondRoot,{recursive:true,force:true});}
 
     const expiredInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
@@ -566,6 +597,8 @@ test('e2e id matrix routes inbound correlations and explicit channel targets',as
     assert.equal((await neither.json()).result.isError,true);
     const unknown=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:17,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId:'ch_AAAAAAAAAAAAAAAAAAAAAAAA',text:'bad'}}});
     assert.equal((await unknown.json()).result.isError,true);
+    const expiredCorrelation=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:18,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:'expired-or-unknown',text:'bad',final:true}}});
+    assert.equal((await expiredCorrelation.json()).result.isError,true);
   }finally{
     await bridge.stop();
     fs.rmSync(root,{recursive:true,force:true});

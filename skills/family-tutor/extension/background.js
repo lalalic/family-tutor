@@ -119,6 +119,30 @@ async function ensureHostedSession({ interactive = false } = {}) {
   return { ...current, bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: session.accessToken, bridgeRefreshToken: session.refreshToken };
 }
 
+
+async function validExtensionAccessToken() {
+  let current = await settings();
+  if (!current.bridgeToken || !current.bridgeRefreshToken) current = await ensureHostedSession({ interactive: false });
+  if (!current.bridgeToken || tokenExpiresSoon(current.bridgeToken)) {
+    const refreshed = await refreshExtensionSession(current.bridgeRefreshToken);
+    await chrome.storage.local.set({ bridgeToken: refreshed.accessToken, bridgeRefreshToken: refreshed.refreshToken });
+    current = { ...current, bridgeToken: refreshed.accessToken, bridgeRefreshToken: refreshed.refreshToken };
+  }
+  return current.bridgeToken;
+}
+
+async function fetchChatGptAuthToken() {
+  const accessToken = await validExtensionAccessToken();
+  const response = await fetch(`${OAUTH_ORIGIN}/v1/chatgpt-auth-token`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.auth_token) throw new Error(result.message || result.error || 'Could not prepare ChatGPT connection.');
+  return result.auth_token;
+}
+
 const ACTION_ICON_PATHS = Object.freeze({
   connected: { 16: 'icons/connected-16.png', 32: 'icons/connected-32.png', 48: 'icons/connected-48.png', 128: 'icons/connected-128.png' },
   recovering: { 16: 'icons/recovering-16.png', 32: 'icons/recovering-32.png', 48: 'icons/recovering-48.png', 128: 'icons/recovering-128.png' },
@@ -667,6 +691,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       connect().catch(() => {});
       respond({ ok: true, children: availableChildren });
     })().catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+
+  if (message?.type === 'chatgpt.authToken') {
+    fetchChatGptAuthToken().then((authToken) => respond({ ok: true, authToken })).catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
   }
 

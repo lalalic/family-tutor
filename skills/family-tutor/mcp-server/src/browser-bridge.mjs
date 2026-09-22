@@ -10,7 +10,7 @@ const MAX_ATTACHMENTS=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
 const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
-const SETUP_CLAIM_TTL_MS=10*60*1000;
+const SETUP_CLAIM_TTL_MS=30*60*1000;
 
 function safeName(name='attachment'){
   return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'attachment';
@@ -78,6 +78,7 @@ export class BrowserBridge {
     this.rotationPending=new Map();
     this.childSockets=new Map();
     this.childVersions=new Map();
+    this.threadAckHashes=new Map();
     this.server=null;
     this.wsServer=null;
     this.token=null;
@@ -220,7 +221,14 @@ export class BrowserBridge {
       return payload.iss===this.publicOrigin&&payload.aud===resource&&payload.client_id===clientId&&String(payload.scope||'').split(/\s+/).includes(scope)&&Number(payload.exp)>Math.floor(Date.now()/1000);
     }catch{return false;}
   }
-  #verifyAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'});}
+  #verifyAccessToken(token){
+    if(!this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'})) return false;
+    try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return !payload.family_id||(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
+  }
+  #signManualChatGptToken(expiresIn=30*24*60*60){
+    if(!this.#familyId()) throw new Error('Family Tutor installation is not linked.');
+    return this.#signAccessToken({scope:'tutor',resource:this.#oauthResource(),clientId:this.oauthClientId,familyId:this.#familyId(),expiresIn});
+  }
   #verifyExtensionAccessToken(token){
     if(!this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'})) return false;
     try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return Boolean(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
@@ -245,6 +253,10 @@ export class BrowserBridge {
   #verifyExtensionRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.extensionOAuthClientId,scope:'extension_refresh',resource:this.#extensionResource(),familyId:this.#familyId(),allowMissingResource:true});}
   #signChatGptRefreshToken(expiresIn=180*24*60*60){return this.#signRefreshToken({clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource(),expiresIn});}
   #verifyChatGptRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource()});}
+  #extensionAuthorized(req){
+    const match=String(req.headers.authorization||'').match(/^Bearer\s+(\S+)$/i);
+    return Boolean(match&&this.#verifyExtensionAccessToken(match[1]));
+  }
   #mcpAuthorized(req){
     const value=String(req.headers.authorization||'');
     if(value===`Bearer ${this.token}`) return true;
@@ -537,7 +549,12 @@ export class BrowserBridge {
         if(this.rotationPending.has(childId)) this.rotationPending.delete(childId);
         return;
       }
-      if(message?.type==='turn.ack') return;
+      if(message?.type==='turn.ack'){
+        const childId=String(message.childId||'').trim();
+        const threadUrl=String(message.threadUrl||'').trim();
+        if(this.children.has(childId)&&threadUrl) this.threadAckHashes.set(childId,crypto.createHash('sha256').update(threadUrl).digest('hex'));
+        return;
+      }
       if(message?.type==='extension.ping') return;
       if(message?.type==='tab.bind'){
         const childId=String(message.childId||'').trim();
@@ -662,7 +679,7 @@ export class BrowserBridge {
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
     if(req.method==='GET'&&setupPage){
-      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><body><main><h1>Finish Family Tutor setup</h1><p id="status">Connecting this browser to your family…</p></main></body>`);
+      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><style>body{font:16px system-ui;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}a{display:inline-block;background:#17211f;color:white;padding:10px 14px;border-radius:9px;text-decoration:none}code{background:#f3f3f3;padding:2px 5px;border-radius:4px}</style><body><main><h1>Finish Family Tutor setup</h1><p id="status">If Family Tutor is already installed, this browser will connect automatically. Otherwise install the extension, then reopen this setup page.</p><p><a href="/downloads/family-tutor-extension.zip">Download Family Tutor extension</a></p><ol><li>Unzip the downloaded file.</li><li>Open <code>chrome://extensions</code>, enable Developer mode, choose <strong>Load unpacked</strong>, and select the unzipped folder.</li><li>Reopen this setup page. Family Tutor will connect automatically.</li></ol></main></body>`);
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'"}); return res.end(body);
     }
     if(req.method==='POST'&&url.pathname==='/v1/setup/claim'){
@@ -671,6 +688,10 @@ export class BrowserBridge {
       const body=await readJson(req); const record=this.#consumeSetupClaim(body.claim);
       if(!record) return json(res,400,{error:'invalid_or_expired_claim'});
       return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:record.familyId}),refresh_token:this.#signExtensionRefreshToken(record.familyId),token_type:'Bearer',expires_in:3600,scope:'extension',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
+    }
+    if(req.method==='POST'&&url.pathname==='/v1/chatgpt-auth-token'){
+      if(!this.#extensionAuthorized(req)) return json(res,401,{error:'unauthorized'});
+      return json(res,200,{auth_token:this.#signManualChatGptToken(),token_type:'Bearer',expires_in:30*24*60*60});
     }
     if(req.method==='POST'&&url.pathname==='/mcp/reply'){
       if(!this.#authorized(req,url)) return json(res,401,{error:'unauthorized'});
@@ -697,7 +718,7 @@ export class BrowserBridge {
       return json(res,200,turn);
     }
     if(req.method==='GET'&&url.pathname==='/v1/status'){
-      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),lastExtensionError:this.lastExtensionError});
+      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),threadAckHashes:Object.fromEntries([...this.threadAckHashes.entries()].sort()),lastExtensionError:this.lastExtensionError});
     }
     if(req.method==='POST'&&/^\/v1\/turns\/[^/]+\/failed$/.test(url.pathname)){
       const id=decodeURIComponent(url.pathname.split('/')[3]);

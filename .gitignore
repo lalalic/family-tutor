@@ -7,3 +7,7 @@ runs/
 
 **/node_modules/
 .DS_Store
+
+# release artifacts
+dist/
+site/downloads/*.zip

@@ -11,14 +11,17 @@ provider IDs, bearer tokens, and child messages inside trusted adapters.
 1. Confirm prerequisites: supported Chrome, ChatGPT Plus with Developer Mode,
    the Family Tutor extension, and a Discord server where the owner can
    authorize the shared bot.
-2. Connect ChatGPT Developer Mode to the hosted Family Tutor MCP endpoint.
+2. Connect ChatGPT to the hosted Family Tutor MCP endpoint. If the install UI
+   offers OAuth, use **Connect/Authorize**. If it asks for an auth token, open
+   the Family Tutor extension, choose **Connect ChatGPT**, and paste the copied
+   dedicated ChatGPT token. Never copy the extension session or refresh token.
    Setup remains incomplete until both ChatGPT and MCP are reachable.
 3. Invite the shared Family Tutor Discord bot using the guided authorization
    link. Never paste a bot token into onboarding.
 4. Choose one parent destination and one private child destination per learner.
    The flow accepts logical keys only; the trusted Discord adapter resolves
    those keys to provider channel IDs.
-5. After **Add to Discord**, let extension 2.6.2+ automatically redeem the short-lived Family Tutor setup claim. The extension receives only the family-scoped session and configured learner names. For each learner, visit the learner's ChatGPT Project/thread and use **Link**. The hosted relay must confirm every expected child socket before the Project step is ready; the flow never stores conversation transcripts.
+5. After **Add to Discord**, let extension 2.6.5+ automatically redeem the short-lived Family Tutor setup claim. The extension receives only the family-scoped session and configured learner names. For each learner, visit the learner's ChatGPT Project/thread and use **Link**. The hosted relay must confirm every expected child socket before the Project step is ready; the flow never stores conversation transcripts.
 6. Run acceptance. The probe verifies same-child replies, concise parent
    telemetry, and rejection of cross-family/cross-child routes.
 

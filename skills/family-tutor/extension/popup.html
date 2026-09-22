@@ -54,7 +54,8 @@
   .notice{display:none;margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--soft);color:var(--muted);font-size:11px}
   .notice.show{display:block}
   .notice.error{background:#fff1f2;color:#991b1b}
-  .reconnect{width:100%;margin-top:10px;border:0;border-radius:9px;background:var(--brand);color:#fff;padding:9px;cursor:pointer}
+  .reconnect,.chatgpt-connect{width:100%;margin-top:10px;border:0;border-radius:9px;background:var(--brand);color:#fff;padding:9px;cursor:pointer}
+  .chatgpt-connect{background:#17211f}
   .footer{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:12px}
   .empty{padding:18px 12px;text-align:center;color:var(--muted)}
 </style>
@@ -80,6 +81,7 @@
   </div>
 
   <div id="notice" class="notice"></div>
+  <button id="chatgpt-connect" class="chatgpt-connect" type="button">Connect ChatGPT</button>
   <button id="reconnect" class="reconnect" hidden>Reconnect</button>
 
   <div class="footer">

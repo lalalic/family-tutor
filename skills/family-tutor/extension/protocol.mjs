@@ -110,14 +110,11 @@ export function validateTurn(message) {
     if (!['http:', 'https:'].includes(url.protocol) || !LOOPBACK_HOSTS.has(url.hostname)) {
       throw new Error('attachment URL must use loopback HTTP');
     }
-    const mimeType = String(attachment?.mimeType || '');
-    if (!mimeType.startsWith('image/') && !mimeType.startsWith('audio/')) {
-      throw new Error('only image and audio attachments are supported');
-    }
+    const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim() || 'application/octet-stream';
     return {
       url: url.toString(),
       token: String(attachment?.token || ''),
-      name: String(attachment?.name || 'image'),
+      name: String(attachment?.name || 'attachment'),
       mimeType,
     };
   });
