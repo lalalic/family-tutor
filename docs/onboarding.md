@@ -26,7 +26,7 @@ blocked until they exist.
 2. Discord opens. Choose the already-prepared family server and authorize Family Tutor.
 3. Discord redirects back to the canonical hosted setup guide. The public `/setup` guide and claim-bearing setup URL are the same product surface: the claim URL identifies the family setup session, while the page itself remains the authoritative setup manual. Do not maintain a second setup-help/manual inside the extension.
 4. The hosted guide exposes a stable `?step=<step>` selector so a user, Codex, support flow, or product link can open the guide directly at the current setup step. The page may still show overall progress and prerequisite state, but the selected step is explicit in the URL and must remain shareable/bookmarkable without exposing credentials or provider IDs.
-5. The canonical guide describes the full ChatGPT-side setup, including installing/connecting the Family Tutor plugin/app/MCP, enabling ChatGPT Developer Mode, and creating/linking one dedicated ChatGPT Project per kid. Manual setup follows this guide from start to finish.
+5. The canonical guide describes the full ChatGPT-side setup, including installing/connecting the Family Tutor plugin/app/MCP, enabling ChatGPT Developer Mode, and creating/linking one dedicated ChatGPT Project per kid and setting each learner Project to Project-only memory. Manual setup follows this guide from start to finish.
 6. **Setup with Codex** uses the same hosted setup URL as its source of truth. Codex should open/read the canonical guide, inspect the current step, and perform every safely automatable setup action from that guide. It should stop only for Discord/ChatGPT security, authorization, or other user-presence gates. It must not print or persist setup claims, auth/refresh tokens, provider IDs, or child conversation content.
 7. The extension may expose an **Auto Setup** button that best-effort attempts all setup actions it can perform safely, including the browser/ChatGPT steps described by the hosted guide. The extension must not contain a parallel help/manual experience. It may expose a simple link that opens the canonical hosted setup guide, including the current `?step=<step>` when known. The hosted guide tells the user that **Auto Setup** exists, what it will try, and that manual completion may still be required for protected steps. Claim redemption may happen automatically from the claim-bearing setup page only after the Discord prerequisites are satisfied.
 8. After every kid Project is linked, finishing setup sends one idempotent welcome/help message to each kid channel and one to the parent channel.
@@ -73,6 +73,7 @@ the real Discord acceptance path below, not a replacement for it.
 - [ ] Shared Discord bot is invited to the customer server.
 - [ ] Parent and every child destination are bound through logical keys.
 - [ ] Every child has a unique ChatGPT Project binding.
+- [ ] Every learner ChatGPT Project uses Project-only memory.
 - [ ] Extension health confirms the expected Project tabs.
 - [ ] Distinct child probes return to their originating child destinations.
 - [ ] Parent channel receives learning telemetry, not a transcript.
