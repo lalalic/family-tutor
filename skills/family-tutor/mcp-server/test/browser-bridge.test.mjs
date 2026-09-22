@@ -241,8 +241,15 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const guideHtml=await guide.text();
     assert.match(guideHtml,/Set up Family Tutor/);
     assert.match(guideHtml,/Discord setup was not completed/);
-    assert.match(guideHtml,/Prepare Discord first/);
-    assert.match(guideHtml,/\?step=&lt;step&gt;/);
+    assert.match(guideHtml,/Prepare your Discord family server/);
+    assert.match(guideHtml,/Install the Family Tutor Chrome extension/);
+    assert.match(guideHtml,/Detailed steps/);
+    assert.match(guideHtml,/# parents/);
+    assert.match(guideHtml,/Meggie/);
+    assert.match(guideHtml,/Set up ChatGPT/);
+    assert.match(guideHtml,/MCP server URL/);
+    assert.match(guideHtml,/Authentication<\/span><code>OAuth/);
+    assert.match(guideHtml,/conversation thread/);
 
     const incompleteInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
     const incompleteState=new URL(incompleteInstall.headers.get('location')).searchParams.get('state');

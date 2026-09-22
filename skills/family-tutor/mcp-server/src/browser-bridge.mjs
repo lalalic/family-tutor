@@ -700,7 +700,7 @@ export class BrowserBridge {
       }catch{return redirectOnboarding();}
     }
     if(req.method==='GET'&&url.pathname==='/setup'){
-      const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||'',step:url.searchParams.get('step')||''}));
+      const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||'',step:url.searchParams.get('step')||'',extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension.zip`}));
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
