@@ -91,7 +91,7 @@ sequenceDiagram
 `FAMILY_TUTOR_CONTEXT` contains semantic data only:
 
 ```json
-{"type":"parent","data":{"sender":{"channelId":"parents","name":"Parents"},"message":"remind @sammy(channelId=sammy) to do homework","attachments":[]}}
+{"type":"parent","data":{"correlationId":"<opaque>","senderName":"Parents","message":"remind @sammy to do homework"}}
 ```
 
 The same unchanged parent message is delivered to every explicitly mentioned child's thread. Each thread interprets only its own part.

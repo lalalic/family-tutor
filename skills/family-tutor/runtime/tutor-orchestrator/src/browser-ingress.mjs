@@ -17,7 +17,7 @@ export async function handleBrowserChildMessage(message, child, browserBridge, {
 
   await browserBridge.enqueue({
     childId: child.id,
-    text: buildKidContext({ channelId: browserBridge.channelHandle(message.channelId), childName: child.name, text: contextMessage, attachments: passthroughAttachments }),
+    text: buildKidContext({ childName: child.name, text: contextMessage }),
     attachments: passthroughAttachments,
     origin: {
       channelId: message.channelId,

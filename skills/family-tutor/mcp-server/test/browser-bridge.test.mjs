@@ -35,7 +35,7 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"help","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"help"}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[{url:`http://127.0.0.1:${source.address().port}/x.png`,name:'x.png',mimeType:'image/png',size:13}],
       origin:{channelId:'thread-1',threadId:'thread-1',messageId:'m1'},
     });
@@ -102,13 +102,13 @@ test('preserves parent context data and adds only the active correlation id',asy
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"sender":{"channelId":"parents","name":"Parents"},"message":"remind @kid1(channelId=kid1) to review fractions","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"senderName":"Parents","message":"remind @kid1 to review fractions"}}\n</FAMILY_TUTOR_CONTEXT>',
       origin:{channelId:'parent-channel-id',messageId:'parent-message-id'},
     });
     const payload=await message;
     const envelope=JSON.parse(payload.prompt.match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/)[1]);
     assert.equal(envelope.type,'parent');
-    assert.deepEqual(envelope.data,{sender:{channelId:'parents',name:'Parents'},message:'remind @kid1(channelId=kid1) to review fractions',attachments:[],correlationId:payload.correlation.correlationId});
+    assert.deepEqual(envelope.data,{correlationId:payload.correlation.correlationId,senderName:'Parents',message:'remind @kid1 to review fractions'});
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
     const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
     assert.equal(firstReply.duplicate,undefined);
@@ -383,7 +383,7 @@ test('request_new_thread immediately tells the bound extension to rotate',async(
     socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'2.6.1'}));
     const nextType=(type)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`${type} timeout`)),1500);const onMessage=data=>{const value=JSON.parse(data.toString());if(value.type!==type)return;clearTimeout(timer);socket.off('message',onMessage);resolve(value);};socket.on('message',onMessage);});
     const turnMessage=nextType('turn');
-    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"one","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"one"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
     const turn=await turnMessage;
     const rotateMessage=nextType('thread.rotate');
     const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'request_new_thread',arguments:{correlationId:turn.correlation.correlationId,reason:'context long'}}});
@@ -436,7 +436,7 @@ test('preserves Discord audio attachment for ChatGPT upload',async()=>{
   try{
     await bridge.enqueue({
       childId:'kid1',
-      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
+      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":""}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[{url:'https://cdn.discord.test/voice-message.ogg',name:'voice-message.ogg',mimeType:'audio/ogg',size:13}],
       origin:{channelId:'sammy',messageId:'audio-1'},
     });
@@ -465,7 +465,7 @@ test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
   }).start();
   try{
     await bridge.enqueue({
-      childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"sender":{"channelId":"kid1","name":"Kid 1"},"message":"check these","attachments":[]}}\n</FAMILY_TUTOR_CONTEXT>',
+      childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"check these"}}\n</FAMILY_TUTOR_CONTEXT>',
       attachments:[
         {url:'https://cdn.discord.test/homework.pdf',name:'homework.pdf',mimeType:'application/pdf',size:9},
         {url:'https://cdn.discord.test/scores.csv',name:'scores.csv',size:8},
@@ -478,41 +478,5 @@ test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
     ],[
       '2-scores.csv','text/csv'
     ]]);
-  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
-});
-
-
-test('reply_to_discord accepts exactly one of correlationId or channelId',async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-channel-send-'));
-  const sent=[];
-  const bridge=await new BrowserBridge({
-    instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,
-    replyToDiscord:async()=>{},
-    sendToDiscord:async value=>sent.push(value),
-  }).start();
-  try{
-    const token=bridge.token;
-    const channelId=bridge.channelHandle('discord-channel-123');
-    assert.match(channelId,/^ch_[A-Za-z0-9_-]{24}$/);
-    assert.equal(channelId,bridge.channelHandle('discord-channel-123'));
-
-    const list=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:1,method:'tools/list'});
-    const schema=(await list.json()).result.tools.find(tool=>tool.name==='reply_to_discord').inputSchema;
-    assert.deepEqual(schema.required,['text']);
-    assert.ok(schema.properties.correlationId);
-    assert.ok(schema.properties.channelId);
-    assert.equal(schema.oneOf.length,2);
-
-    const send=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,text:'hello'}}});
-    const sendBody=await send.json();
-    assert.equal(sendBody.result.isError,undefined);
-    assert.deepEqual(sent,[{channelId:'discord-channel-123',text:'hello'}]);
-
-    const both=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,correlationId:'corr',text:'bad'}}});
-    assert.equal((await both.json()).result.isError,true);
-    const neither=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'reply_to_discord',arguments:{text:'bad'}}});
-    assert.equal((await neither.json()).result.isError,true);
-    const channelFinal=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,text:'bad',final:true}}});
-    assert.equal((await channelFinal.json()).result.isError,true);
   }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });

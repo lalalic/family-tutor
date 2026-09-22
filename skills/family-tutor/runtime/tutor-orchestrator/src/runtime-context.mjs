@@ -8,26 +8,17 @@ export function runtimeContext(type, data) {
   return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({ type, data })}\n</FAMILY_TUTOR_CONTEXT>`;
 }
 
-export function attachmentMetadata(attachments = []) {
-  return attachments.map((attachment) => ({
-    name: String(attachment?.name || 'attachment'),
-    mimeType: String(attachment?.mimeType || attachment?.contentType || ''),
-    size: Number(attachment?.size || 0),
-  }));
-}
-
-function messageContext(type,{ senderChannelId, senderName, message, attachments = [] }) {
+function messageContext(type,{ senderName, message }) {
   return runtimeContext(type, {
-    sender: { channelId: String(senderChannelId || ''), name: String(senderName || '') },
+    senderName: String(senderName || ''),
     message: String(message || ''),
-    attachments: attachmentMetadata(attachments),
   });
 }
 
-export function buildKidContext({ channelId, childName, text, attachments = [] }) {
-  return messageContext('kid', { senderChannelId: channelId, senderName: childName || 'Kid', message: text, attachments });
+export function buildKidContext({ childName, text }) {
+  return messageContext('kid', { senderName: childName || 'Kid', message: text });
 }
 
-export function buildParentContext({ channelId, text, attachments = [] }) {
-  return messageContext('parent', { senderChannelId: channelId, senderName: 'Parents', message: text, attachments });
+export function buildParentContext({ text }) {
+  return messageContext('parent', { senderName: 'Parents', message: text });
 }

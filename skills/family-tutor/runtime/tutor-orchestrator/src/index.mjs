@@ -61,7 +61,7 @@ const queues=new Map();
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
 let browserBridge=null;
 
-function turnPrompt(child,message,attachments=[],channelId=''){ return buildKidContext({channelId,childName:child.name,text:message,attachments}); }
+function turnPrompt(child,message){ return buildKidContext({childName:child.name,text:message}); }
 function parseTutorText(text){
   const parent=text.match(/<FAMILY_TUTOR_PARENT>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_PARENT>/i);
   const memory=text.match(/<FAMILY_TUTOR_MEMORY>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_MEMORY>/i);
@@ -138,7 +138,7 @@ async function handleChildMessage(message,child){
   let result;
   try{
     result=await backend.turn({
-      prompt:turnPrompt(child,studentMessage,nonAudioAttachments,browserBridge?.channelHandle(message.channelId)||''),
+      prompt:turnPrompt(child,studentMessage),
       childId:child.id,
       attachments:nonAudioAttachments,
     });
@@ -154,7 +154,7 @@ async function handleChildMessage(message,child){
       return message.reply('I received your file, but Codex and the local image fallback both failed. Please try again or send the question as text.');
     }
     const grounded=`${studentMessage}\n\n[GROUNDING FROM STUDENT IMAGE — fallback visual analysis]\n${imageContext}\n[/GROUNDING FROM STUDENT IMAGE]`;
-    result=await backend.turn({prompt:turnPrompt(child,grounded,[],browserBridge?.channelHandle(message.channelId)||''),childId:child.id});
+    result=await backend.turn({prompt:turnPrompt(child,grounded),childId:child.id});
   }
   const parsed=parseTutorText(result.text);
   await applyTutorSideEffects(child,parsed);
@@ -214,20 +214,15 @@ async function handleParentControl(message){
   const nonAudioAttachments=attachments.filter(a=>!isAudioAttachment(a));
   let voiceTranscript=null;
   if(audioAttachments.length) voiceTranscript=await transcribeAudioAttachments(audioAttachments);
-  const targetChannelId=browserBridge?.channelHandle(command.channelMentionId)||'';
-  const senderChannelId=browserBridge?.channelHandle(message.channelId)||'';
-  const normalizedMessage=renderParentNaturalText(message.content,command.channelMentionId,child.id,targetChannelId);
+  const normalizedMessage=renderParentNaturalText(message.content,command.channelMentionId,child.id);
   const contextMessage=[normalizedMessage,voiceTranscript].filter(Boolean).join('\n\n');
   if(!contextMessage && !nonAudioAttachments.length) return message.reply('Please include the question or guidance.');
-  const prompt=buildParentContextPrompt({channelId:senderChannelId,text:contextMessage,attachments:nonAudioAttachments});
+  const prompt=buildParentContextPrompt({text:contextMessage});
   return runParentTurn(message,child,prompt,{reminder:command.command==='!remind',attachments:nonAudioAttachments});
 }
 
 async function statusForChild(child){
-  const parentHandle=browserBridge?.channelHandle(config.discord.parentChannelId)||'';
-  const target=client.channels.cache.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id);
-  const targetHandle=target&&browserBridge?browserBridge.channelHandle(target.id):'';
-  const prompt=buildSlashStatusPrompt({child,channelId:parentHandle,targetChannelId:targetHandle,memory:learnerMemory(child)});
+  const prompt=buildSlashStatusPrompt({child,memory:learnerMemory(child)});
   if(browserBridge){
     let latest='';
     await browserBridge.turn({childId:child.id,prompt,origin:{channelId:config.discord.parentChannelId,messageId:'status-'+Date.now(),threadId:null},reply:async(text)=>{latest=text;}});
@@ -298,11 +293,6 @@ if(config.browserBridge?.enabled){
       if(!channel?.isTextBased()) throw new Error('originating Discord channel is unavailable');
       const original=await channel.messages.fetch(origin.messageId);
       await replyToMessage(original,text);
-    },
-    sendToDiscord:async({channelId,text})=>{
-      const channel=await client.channels.fetch(channelId);
-      if(!channel?.isTextBased()) throw new Error('Discord channel is unavailable');
-      await sendChunks(channel,text);
     },
     addChild:addKid,
     deleteChild:deleteKid,

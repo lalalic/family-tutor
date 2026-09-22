@@ -6,6 +6,4 @@ The Project/parent `AGENTS.md` supplies stable tutoring behavior. The runtime ap
 
 The runtime may update the child `AGENTS.md` through the `<FAMILY_TUTOR_MEMORY>...complete Markdown...</FAMILY_TUTOR_MEMORY>` control block and strips that block before sending the visible reply to the child. `<FAMILY_TUTOR_PARENT>` and `<FAMILY_TUTOR_ROLLOVER/>` are likewise hidden runtime controls.
 
-- `type: "kid"` and `type: "parent"` use the same `data` schema: `sender: {channelId, name}`, `message`, and `attachments`. `sender.channelId` is a Family Tutor logical channel id such as `sammy` or `parents`, never a Discord snowflake. Parent mentions are normalized inline, for example `@sammy(channelId=sammy)`.
-
-- `reply_to_discord` accepts exactly one address: `correlationId` to reply to the active inbound turn, or `channelId` to send a new message to an opaque Family Tutor channel. Do not provide both. Use `final` only with `correlationId`.
+- `type: "kid"` and `type: "parent"` share one inbound data schema: `{ correlationId, senderName, message }`. `correlationId` is the deterministic reply handle for that inbound turn. Reply using `reply_to_discord({ correlationId, text, final? })`; do not infer or select Discord channels.
