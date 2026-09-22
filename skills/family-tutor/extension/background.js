@@ -104,7 +104,7 @@ async function refreshExtensionSession(refreshToken) {
   });
   const token = await response.json().catch(() => ({}));
   if (!response.ok || !token.access_token) throw new Error(token.error_description || token.error || 'Family Tutor session refresh failed.');
-  return token.access_token;
+  return { accessToken: token.access_token, refreshToken: token.refresh_token || refreshToken };
 }
 
 async function ensureHostedSession({ interactive = false } = {}) {
@@ -500,12 +500,13 @@ async function connect() {
     try {
       if (!current.bridgeToken || !current.bridgeRefreshToken) current = await ensureHostedSession({ interactive: false });
       if (!current.bridgeToken || tokenExpiresSoon(current.bridgeToken)) {
-        const bridgeToken = await refreshExtensionSession(current.bridgeRefreshToken);
-        await chrome.storage.local.set({ bridgeToken });
-        current = { ...current, bridgeToken };
+        const refreshed = await refreshExtensionSession(current.bridgeRefreshToken);
+        await chrome.storage.local.set({ bridgeToken: refreshed.accessToken, bridgeRefreshToken: refreshed.refreshToken });
+        current = { ...current, bridgeToken: refreshed.accessToken, bridgeRefreshToken: refreshed.refreshToken };
       }
     } catch (error) {
       await updateHealth({ state: HEALTH_STATES.ERROR, lastError: safeErrorMessage(error), recoveryCount: 0 });
+      scheduleReconnect();
       return;
     }
   }

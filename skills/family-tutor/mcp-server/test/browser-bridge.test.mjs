@@ -298,6 +298,32 @@ test('Discord install creates one-time family claim and family-scoped extension 
 });
 
 
+test('legacy extension refresh token migrates to resource-scoped format',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-legacy-refresh-'));
+  const signingSecret='test-refresh-signing-secret';
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'sammy',name:'Sammy'}],host:'127.0.0.1',port:0,token:signingSecret,replyToDiscord:async()=>{},discordOAuthExchange:async value=>({guild:{id:value.hintedGuildId}})}).start();
+  try{
+    const install=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const state=new URL(install.headers.get('location')).searchParams.get('state');
+    const callback=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(state)}&code=legacy-code&guild_id=guild-A`,{redirect:'manual'});
+    const claim=decodeURIComponent(new URL(callback.headers.get('location')).pathname.split('/').pop());
+    const claimed=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
+    const session=await claimed.json();
+    const accessPayload=JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString('utf8'));
+    const legacyPayload=Buffer.from(JSON.stringify({iss:'https://family-tutor.qili2.com',client_id:'family-tutor-extension',scope:'extension_refresh',family_id:accessPayload.family_id,exp:Math.floor(Date.now()/1000)+3600})).toString('base64url');
+    const legacySignature=crypto.createHmac('sha256',signingSecret).update(`ftr1.${legacyPayload}`).digest('base64url');
+    const legacy=`ftr1.${legacyPayload}.${legacySignature}`;
+    const form=new URLSearchParams({grant_type:'refresh_token',refresh_token:legacy,client_id:'family-tutor-extension'});
+    const response=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
+    assert.equal(response.status,200);
+    const refreshed=await response.json();
+    assert.notEqual(refreshed.refresh_token,legacy);
+    const modern=JSON.parse(Buffer.from(refreshed.refresh_token.split('.')[1],'base64url').toString('utf8'));
+    assert.equal(modern.resource,'https://family-tutor.qili2.com/ws');
+    assert.equal(modern.family_id,accessPayload.family_id);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
+
 test('extension can add and delete kids while child display names stay separate from ids',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-kids-'));
   const added=[]; const deleted=[];
