@@ -172,6 +172,15 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     assert.equal(token.token_type,'Bearer');
     assert.equal(token.scope,'tutor');
     assert.ok(token.access_token.startsWith('ft1.'));
+    assert.ok(token.refresh_token.startsWith('ftr1.'));
+
+    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:token.refresh_token,client_id:'family-tutor-chatgpt',client_secret:secret});
+    const refreshedResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
+    assert.equal(refreshedResponse.status,200);
+    const refreshed=await refreshedResponse.json();
+    assert.equal(refreshed.scope,'tutor');
+    assert.ok(refreshed.access_token.startsWith('ft1.'));
+    assert.equal(refreshed.refresh_token,token.refresh_token);
 
     const initialized=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
     assert.equal(initialized.status,200);

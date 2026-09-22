@@ -225,21 +225,25 @@ export class BrowserBridge {
     if(!this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'})) return false;
     try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return Boolean(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
   }
-  #signExtensionRefreshToken(familyId,expiresIn=180*24*60*60){
-    const payload=b64url(JSON.stringify({iss:this.publicOrigin,client_id:this.extensionOAuthClientId,scope:'extension_refresh',family_id:familyId,exp:Math.floor(Date.now()/1000)+expiresIn}));
+  #signRefreshToken({clientId,scope,resource,familyId=null,expiresIn=180*24*60*60}){
+    const payload=b64url(JSON.stringify({iss:this.publicOrigin,client_id:clientId,scope,resource,...(familyId?{family_id:familyId}:{}),exp:Math.floor(Date.now()/1000)+expiresIn}));
     const signature=crypto.createHmac('sha256',this.token).update(`ftr1.${payload}`).digest('base64url');
     return `ftr1.${payload}.${signature}`;
   }
-  #verifyExtensionRefreshToken(token){
+  #verifyRefreshToken(token,{clientId,scope,resource,familyId=null}){
     const parts=String(token||'').split('.');
     if(parts.length!==3||parts[0]!=='ftr1') return false;
     const expected=crypto.createHmac('sha256',this.token).update(`ftr1.${parts[1]}`).digest('base64url');
     if(!timingSafeEqualText(parts[2],expected)) return false;
     try{
       const payload=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
-      return payload.iss===this.publicOrigin&&payload.client_id===this.extensionOAuthClientId&&payload.scope==='extension_refresh'&&payload.family_id===this.#familyId()&&Number(payload.exp)>Math.floor(Date.now()/1000);
+      return payload.iss===this.publicOrigin&&payload.client_id===clientId&&payload.scope===scope&&payload.resource===resource&&(!familyId||payload.family_id===familyId)&&Number(payload.exp)>Math.floor(Date.now()/1000);
     }catch{return false;}
   }
+  #signExtensionRefreshToken(familyId,expiresIn=180*24*60*60){return this.#signRefreshToken({clientId:this.extensionOAuthClientId,scope:'extension_refresh',resource:this.#extensionResource(),familyId,expiresIn});}
+  #verifyExtensionRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.extensionOAuthClientId,scope:'extension_refresh',resource:this.#extensionResource(),familyId:this.#familyId()});}
+  #signChatGptRefreshToken(expiresIn=180*24*60*60){return this.#signRefreshToken({clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource(),expiresIn});}
+  #verifyChatGptRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource()});}
   #mcpAuthorized(req){
     const value=String(req.headers.authorization||'');
     if(value===`Bearer ${this.token}`) return true;
@@ -291,8 +295,16 @@ export class BrowserBridge {
     if(!this.#oauthClientValid(credentials.id,credentials.secret)) return json(res,401,{error:'invalid_client'});
     const grantType=form.get('grant_type');
     if(grantType==='refresh_token'){
-      if(credentials.id!==this.extensionOAuthClientId||!this.#verifyExtensionRefreshToken(form.get('refresh_token'))) return json(res,400,{error:'invalid_grant'});
-      return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:this.#familyId()}),token_type:'Bearer',expires_in:3600,scope:'extension'});
+      const refreshToken=form.get('refresh_token');
+      if(credentials.id===this.extensionOAuthClientId){
+        if(!this.#verifyExtensionRefreshToken(refreshToken)) return json(res,400,{error:'invalid_grant'});
+        return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:this.#familyId()}),refresh_token:refreshToken,token_type:'Bearer',expires_in:3600,scope:'extension'});
+      }
+      if(credentials.id===this.oauthClientId){
+        if(!this.#verifyChatGptRefreshToken(refreshToken)) return json(res,400,{error:'invalid_grant'});
+        return json(res,200,{access_token:this.#signAccessToken({scope:'tutor',resource:this.#oauthResource(),clientId:this.oauthClientId}),refresh_token:refreshToken,token_type:'Bearer',expires_in:3600,scope:'tutor'});
+      }
+      return json(res,400,{error:'invalid_grant'});
     }
     if(grantType!=='authorization_code') return json(res,400,{error:'unsupported_grant_type'});
     const code=form.get('code')||''; const record=this.oauthCodes.get(code); this.oauthCodes.delete(code);
@@ -305,6 +317,7 @@ export class BrowserBridge {
     if(record.clientId===this.extensionOAuthClientId&&!familyId) return json(res,409,{error:'family_setup_required'});
     const response={access_token:this.#signAccessToken({scope:record.scope,resource:record.resource,clientId:record.clientId,familyId}),token_type:'Bearer',expires_in:3600,scope:record.scope};
     if(record.clientId===this.extensionOAuthClientId) response.refresh_token=this.#signExtensionRefreshToken(familyId);
+    else if(record.clientId===this.oauthClientId) response.refresh_token=this.#signChatGptRefreshToken();
     return json(res,200,response);
   }
 
