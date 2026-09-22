@@ -149,7 +149,7 @@ export function setupPlan({ children = [], publicOrigin = 'https://family-tutor.
       detail:'Each kid needs a dedicated Project and at least one conversation thread inside that Project. The extension links the current Project/thread to the selected kid.',
       substeps:[
         { title:'Create or open the kid Project', body:'Create one ChatGPT Project named for the kid, for example Sammy. Reuse an existing dedicated kid Project if it already exists.' },
-        { title:'Open the learner profile template', html:`<p>Open the hosted learner profile template:</p><p><a class="button secondary" href="${esc(publicOrigin)}/learner-profile-template" target="_blank" rel="noreferrer">Open learner profile template</a></p>` },
+        { title:'Open the learner profile template', html:`<p>Open the hosted learner profile template:</p><p><a class="button secondary" href="${esc(publicOrigin)}/setup/learner-profile-template" target="_blank" rel="noreferrer">Open learner profile template</a></p>` },
         { title:'Copy it into Project Instructions', body:'Copy the full template. In the kid Project, open Project settings → Project Instructions and paste the template there.' },
         { title:'Tune the learner profile', body:'Replace every placeholder with this learner’s real details, including name, preferred name, learning level, language, interests, strengths, and current learning goals. Keep the Neo bootstrap instruction and the one-learner isolation rule, then save Project Instructions.' },
         { title:'Create or open a thread inside the Project', body:'Open a conversation inside that Project. A Project landing page without a conversation thread is not enough for linking.' },
