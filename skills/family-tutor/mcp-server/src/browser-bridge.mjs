@@ -10,7 +10,7 @@ const MAX_ATTACHMENTS=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
 const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
-const SETUP_CLAIM_TTL_MS=10*60*1000;
+const SETUP_CLAIM_TTL_MS=30*60*1000;
 
 function safeName(name='attachment'){
   return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'attachment';
@@ -679,7 +679,7 @@ export class BrowserBridge {
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
     if(req.method==='GET'&&setupPage){
-      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><body><main><h1>Finish Family Tutor setup</h1><p id="status">Connecting this browser to your family…</p></main></body>`);
+      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><style>body{font:16px system-ui;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}a{display:inline-block;background:#17211f;color:white;padding:10px 14px;border-radius:9px;text-decoration:none}code{background:#f3f3f3;padding:2px 5px;border-radius:4px}</style><body><main><h1>Finish Family Tutor setup</h1><p id="status">If Family Tutor is already installed, this browser will connect automatically. Otherwise install the extension, then reopen this setup page.</p><p><a href="/downloads/family-tutor-extension.zip">Download Family Tutor extension</a></p><ol><li>Unzip the downloaded file.</li><li>Open <code>chrome://extensions</code>, enable Developer mode, choose <strong>Load unpacked</strong>, and select the unzipped folder.</li><li>Reopen this setup page. Family Tutor will connect automatically.</li></ol></main></body>`);
       res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'"}); return res.end(body);
     }
     if(req.method==='POST'&&url.pathname==='/v1/setup/claim'){

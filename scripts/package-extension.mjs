@@ -15,4 +15,8 @@ const entries = fs.readdirSync(source).filter((entry) => entry !== 'test' && ent
 execFileSync('/usr/bin/zip', ['-X', '-q', '-r', output, ...entries], { cwd: source });
 const bytes = fs.readFileSync(output);
 const sha256 = createHash('sha256').update(bytes).digest('hex');
-console.log(JSON.stringify({ version: manifest.version, file: path.relative(root, output), bytes: bytes.length, sha256 }, null, 2));
+const siteDownloadDir = path.join(root, 'site', 'downloads');
+const siteDownload = path.join(siteDownloadDir, 'family-tutor-extension.zip');
+fs.mkdirSync(siteDownloadDir, { recursive: true });
+fs.copyFileSync(output, siteDownload);
+console.log(JSON.stringify({ version: manifest.version, file: path.relative(root, output), siteFile: path.relative(root, siteDownload), bytes: bytes.length, sha256 }, null, 2));

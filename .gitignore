@@ -10,3 +10,4 @@ runs/
 
 # release artifacts
 dist/
+site/downloads/*.zip
