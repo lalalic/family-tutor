@@ -659,10 +659,19 @@ export class BrowserBridge {
       res.writeHead(302,{location:target.toString(),'cache-control':'no-store'}); return res.end();
     }
     if(req.method==='GET'&&url.pathname==='/discord/callback'){
+      const redirectOnboarding=(error='discord_install_failed')=>{
+        const target=new URL('/',this.publicOrigin);
+        target.searchParams.set('onboarding','discord');
+        target.searchParams.set('error',error);
+        target.hash='how';
+        res.writeHead(302,{location:target.toString(),'cache-control':'no-store'}); return res.end();
+      };
       const state=url.searchParams.get('state')||''; const stateRecord=this.discordOAuthStates.get(state); this.discordOAuthStates.delete(state);
-      if(!stateRecord||stateRecord.expiresAt<Date.now()) return json(res,400,{error:'invalid_setup_state'});
+      if(!stateRecord||stateRecord.expiresAt<Date.now()) return redirectOnboarding('invalid_setup_state');
+      const oauthError=url.searchParams.get('error')||'';
+      if(oauthError) return redirectOnboarding(oauthError);
       const code=url.searchParams.get('code')||''; const hintedGuildId=url.searchParams.get('guild_id')||'';
-      if(!code) return json(res,400,{error:'discord_install_incomplete'});
+      if(!code) return redirectOnboarding('discord_install_incomplete');
       try{
         let exchangeResult;
         if(this.discordOAuthExchange) exchangeResult=await this.discordOAuthExchange({code,hintedGuildId,redirectUri:process.env.DISCORD_REDIRECT_URI||`${this.publicOrigin}/discord/callback`});
@@ -688,7 +697,7 @@ export class BrowserBridge {
         await this.#bindGuild(guildId);
         const claim=this.#createSetupClaim();
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
-      }catch(error){return json(res,409,{error:'discord_install_failed',message:String(error?.message||error)});}
+      }catch{return redirectOnboarding();}
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
     if(req.method==='GET'&&setupPage){

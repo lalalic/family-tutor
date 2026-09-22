@@ -230,6 +230,23 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.equal(setup.origin,'https://family-tutor.qili2.com');
     assert.match(setup.pathname,/^\/setup\/[A-Za-z0-9_-]+$/);
     assert.equal(setup.href.includes('guild-A'),false);
+
+    const deniedInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const deniedState=new URL(deniedInstall.headers.get('location')).searchParams.get('state');
+    const denied=await fetch(`${bridge.endpoint()}/discord/callback?error=access_denied&error_description=denied&state=${encodeURIComponent(deniedState)}`,{redirect:'manual'});
+    assert.equal(denied.status,302);
+    assert.equal(denied.headers.get('location'),'https://family-tutor.qili2.com/?onboarding=discord&error=access_denied#how');
+
+    const incompleteInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
+    const incompleteState=new URL(incompleteInstall.headers.get('location')).searchParams.get('state');
+    const incomplete=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(incompleteState)}`,{redirect:'manual'});
+    assert.equal(incomplete.status,302);
+    assert.equal(incomplete.headers.get('location'),'https://family-tutor.qili2.com/?onboarding=discord&error=discord_install_incomplete#how');
+
+    const invalid=await fetch(`${bridge.endpoint()}/discord/callback?state=not-valid`,{redirect:'manual'});
+    assert.equal(invalid.status,302);
+    assert.equal(invalid.headers.get('location'),'https://family-tutor.qili2.com/?onboarding=discord&error=invalid_setup_state#how');
+
     const claim=decodeURIComponent(setup.pathname.split('/').pop());
     const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
     assert.equal(setupPage.status,200);
@@ -330,7 +347,8 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const other=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
     const otherState=new URL(other.headers.get('location')).searchParams.get('state');
     const wrongGuild=await fetch(`${bridge.endpoint()}/discord/callback?state=${encodeURIComponent(otherState)}&code=discord-code-3&guild_id=guild-B`,{redirect:'manual'});
-    assert.equal(wrongGuild.status,409);
+    assert.equal(wrongGuild.status,302);
+    assert.equal(wrongGuild.headers.get('location'),'https://family-tutor.qili2.com/?onboarding=discord&error=discord_install_failed#how');
 
     const secondRoot=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-family-claim-2-'));
     const second=await new BrowserBridge({instanceDir:secondRoot,children:[{id:'other'}],host:'127.0.0.1',port:0,token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{},discordOAuthExchange:async value=>({guild:{id:value.hintedGuildId}})}).start();
