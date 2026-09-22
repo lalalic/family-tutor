@@ -1,5 +1,34 @@
 const MCP_URL = 'https://family-tutor.qili2.com/mcp';
 
+
+export const LEARNER_PROFILE_TEMPLATE = `# Neo learner profile
+
+IMPORTANT: You are Neo, this learner's dedicated Family Tutor. Before answering, follow the latest canonical Neo bootstrap at https://family-tutor.qili2.com/bootstrap/latest. The bootstrap is the source of current tutoring behaviour; available tools define capabilities. Do not invent capabilities or put environment-specific tool instructions in this Project.
+
+This ChatGPT Project belongs to exactly one learner. Never mix this learner's history, files, context, or profile with another learner's Project.
+
+## Learner profile (editable)
+
+- Student: <STUDENT_NAME>
+- Preferred name: <PREFERRED_NAME>
+- Approximate grade/learning level: <GRADE_OR_LEVEL>
+- Primary language: <LANGUAGE>
+- Interests: <INTERESTS>
+- Strengths: <STRENGTHS>
+- Current learning goals: <LEARNING_GOALS>
+`;
+
+export function renderLearnerProfileTemplatePage({ publicOrigin = 'https://family-tutor.qili2.com' } = {}) {
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Learner profile template · Family Tutor</title>
+<style>
+body{margin:0;font:15px/1.5 system-ui,-apple-system,sans-serif;color:#17211f;background:#fff}main{max-width:860px;margin:42px auto;padding:0 22px 60px}h1{font-size:32px;margin-bottom:8px}.muted{color:#68726f}pre{white-space:pre-wrap;background:#f6f8f7;border:1px solid #e5e9e7;border-radius:14px;padding:18px;overflow:auto}code{font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}a{color:#0b6067}
+</style>
+<main><p class="muted">Family Tutor · ChatGPT Project Instructions</p><h1>Learner profile template</h1><p>Copy the full template below into the kid's ChatGPT <strong>Project Instructions</strong>, then replace every placeholder with that learner's information. Tune the wording as needed, but keep the Neo bootstrap instruction and one-learner isolation rule.</p><pre><code>${esc(LEARNER_PROFILE_TEMPLATE)}</code></pre><p><a href="${esc(publicOrigin)}/setup?step=projects">Return to setup</a></p></main>`;
+}
+
 function esc(value='') {
   return String(value)
     .replaceAll('&','&amp;')
@@ -120,6 +149,9 @@ export function setupPlan({ children = [], publicOrigin = 'https://family-tutor.
       detail:'Each kid needs a dedicated Project and at least one conversation thread inside that Project. The extension links the current Project/thread to the selected kid.',
       substeps:[
         { title:'Create or open the kid Project', body:'Create one ChatGPT Project named for the kid, for example Sammy. Reuse an existing dedicated kid Project if it already exists.' },
+        { title:'Open the learner profile template', html:`<p>Open the hosted learner profile template:</p><p><a class="button secondary" href="${esc(publicOrigin)}/learner-profile-template" target="_blank" rel="noreferrer">Open learner profile template</a></p>` },
+        { title:'Copy it into Project Instructions', body:'Copy the full template. In the kid Project, open Project settings → Project Instructions and paste the template there.' },
+        { title:'Tune the learner profile', body:'Replace every placeholder with this learner’s real details, including name, preferred name, learning level, language, interests, strengths, and current learning goals. Keep the Neo bootstrap instruction and the one-learner isolation rule, then save Project Instructions.' },
         { title:'Create or open a thread inside the Project', body:'Open a conversation inside that Project. A Project landing page without a conversation thread is not enough for linking.' },
         { title:'Open the Family Tutor extension', body:'While that Project conversation is the active Chrome tab, open the Family Tutor extension menu.' },
         { title:'Link the kid', body:'Find the matching kid and click the link icon. The extension links the current ChatGPT Project/thread to that kid. A check mark indicates the active Project is linked.' },
