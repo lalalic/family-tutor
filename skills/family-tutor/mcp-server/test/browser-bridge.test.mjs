@@ -306,6 +306,11 @@ test('Discord install creates one-time family claim and family-scoped extension 
       await fetch(`${second.endpoint()}/discord/callback?state=${encodeURIComponent(secondState)}&code=second-code&guild_id=guild-B`,{redirect:'manual'});
       const crossRefresh=await fetch(`${second.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
       assert.equal(crossRefresh.status,400);
+      const crossManualToken=await fetch(`${second.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:100,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'cross-family-test',version:'1'}}})});
+      assert.equal(crossManualToken.status,401);
+      const firstHandle=bridge.channelHandle('guild-a-child-channel');
+      second.channelHandle('guild-b-child-channel');
+      await assert.rejects(second.send(firstHandle,'must not cross families'),/unknown channel id/);
     }finally{await second.stop();fs.rmSync(secondRoot,{recursive:true,force:true});}
 
     const expiredInstall=await fetch(`${bridge.endpoint()}/discord/install`,{redirect:'manual'});
@@ -592,6 +597,8 @@ test('e2e id matrix routes inbound correlations and explicit channel targets',as
     assert.equal((await neither.json()).result.isError,true);
     const unknown=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:17,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId:'ch_AAAAAAAAAAAAAAAAAAAAAAAA',text:'bad'}}});
     assert.equal((await unknown.json()).result.isError,true);
+    const expiredCorrelation=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:18,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:'expired-or-unknown',text:'bad',final:true}}});
+    assert.equal((await expiredCorrelation.json()).result.isError,true);
   }finally{
     await bridge.stop();
     fs.rmSync(root,{recursive:true,force:true});
