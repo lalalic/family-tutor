@@ -107,6 +107,63 @@ async function waitForUserTurn(prompt, timeoutMs = 30000) {
   throw new Error('submitted prompt did not become a durable ChatGPT user turn');
 }
 
+
+function clickableText(value) {
+  return normalized(value).toLowerCase();
+}
+
+function candidateByText(selector, patterns, root = document) {
+  const wanted = patterns.map((value) => value.toLowerCase());
+  return [...root.querySelectorAll(selector)].find((element) => {
+    const text = clickableText(element.innerText || element.textContent || element.getAttribute('aria-label') || '');
+    return wanted.some((pattern) => text === pattern || text.includes(pattern));
+  }) || null;
+}
+
+async function ensureProject(projectName) {
+  const name = normalized(projectName);
+  if (!name) throw new Error('kid name is required');
+
+  const existing = [...document.querySelectorAll('a[href]')].find((anchor) => {
+    const label = normalized(anchor.innerText || anchor.textContent);
+    return label.toLowerCase() === name.toLowerCase() && /\/g\/g-p-[^/]+\/project/.test(anchor.getAttribute('href') || '');
+  });
+  if (existing) {
+    const absolute = new URL(existing.getAttribute('href'), location.origin).href;
+    const match = absolute.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
+    if (match) return { projectId: match[1], projectUrl: absolute, reused: true };
+  }
+
+  const newProject = candidateByText('button,a,[role="button"]', ['new project', 'create project']);
+  if (!newProject) throw new Error(`Open ChatGPT and create a Project named ${name}, then run Setup for me again.`);
+  newProject.click();
+
+  const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || document.querySelector('form'), 'ChatGPT New Project dialog', 10000);
+  const input = await waitFor(() => dialog.querySelector('input[type="text"], input:not([type]), textarea'), 'ChatGPT project name field', 10000);
+  input.focus();
+  const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  setter?.call(input, name);
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: name }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const create = await waitFor(() => candidateByText('button,[role="button"]', ['create', 'continue', 'done'], dialog), 'ChatGPT Create Project button', 10000);
+  create.click();
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const match = location.pathname.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
+    if (match) return { projectId: match[1], projectUrl: location.href, reused: false };
+    const linked = [...document.querySelectorAll('a[href]')].find((anchor) => normalized(anchor.innerText || anchor.textContent).toLowerCase() === name.toLowerCase());
+    if (linked) {
+      const absolute = new URL(linked.getAttribute('href'), location.origin).href;
+      const linkedMatch = absolute.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
+      if (linkedMatch) return { projectId: linkedMatch[1], projectUrl: absolute, reused: false };
+    }
+    await sleep(250);
+  }
+  throw new Error(`Project ${name} was not created. Finish it in ChatGPT, then run Setup for me again.`);
+}
+
 async function submitTurn(message) {
   const correlationId = message.correlation.correlationId;
   if (activeCorrelationId) throw new Error(`tab already processing turn ${activeCorrelationId}`);
@@ -139,7 +196,11 @@ async function submitTurn(message) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === 'setup.project.ensure') {
+    ensureProject(message.name).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
   if (message?.type !== 'turn') return;
   submitTurn(message).catch((error) => chrome.runtime.sendMessage({
     type: 'turn.error',
