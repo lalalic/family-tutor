@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { renderPublicSetupPage, renderSetupPage } from './setup-guide.mjs';
+import { LEARNER_PROFILE_TEMPLATE, renderLearnerProfileTemplatePage, renderPublicSetupPage, renderSetupPage } from './setup-guide.mjs';
 
 const MAX_ATTACHMENT_BYTES=25*1024*1024;
 const MAX_ATTACHMENTS=4;
@@ -698,6 +698,13 @@ export class BrowserBridge {
         const claim=this.#createSetupClaim();
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
       }catch{return redirectOnboarding();}
+    }
+    if(req.method==='GET'&&url.pathname==='/learner-profile-template'){
+      const body=Buffer.from(renderLearnerProfileTemplatePage({publicOrigin:this.publicOrigin}));
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
+    }
+    if(req.method==='GET'&&url.pathname==='/v1/learner-profile-template'){
+      return json(res,200,{template:LEARNER_PROFILE_TEMPLATE,page_url:`${this.publicOrigin}/learner-profile-template`});
     }
     if(req.method==='GET'&&url.pathname==='/setup'){
       const body=Buffer.from(renderPublicSetupPage({publicOrigin:this.publicOrigin,error:url.searchParams.get('error')||'',step:url.searchParams.get('step')||'',extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension.zip`}));
