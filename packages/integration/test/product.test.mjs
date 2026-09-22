@@ -185,6 +185,8 @@ test('hosted server serves a generic learner profile template and bootstrap with
 
     const bootstrap = await fetch(`${base}/bootstrap/latest.md`);
     assert.equal(bootstrap.status, 200);
-    assert.match(await bootstrap.text(), /capabilities.*exposed/);
+    const bootstrapText = await bootstrap.text();
+    assert.match(bootstrapText, /You are \*\*Neo\*\*/);
+    assert.doesNotMatch(bootstrapText, /capabilit|tool selection|NotebookLM|drawing|attachment|thread continuity|feature availability/i);
   } finally { await product.close(); }
 });
