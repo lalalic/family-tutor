@@ -51,13 +51,16 @@ const bytes = fs.readFileSync(output);
 const sha256 = createHash('sha256').update(bytes).digest('hex');
 const siteDownloadDir = path.join(root, 'site', 'downloads');
 const siteDownload = path.join(siteDownloadDir, 'family-tutor-extension.zip');
+const versionedSiteDownload = path.join(siteDownloadDir, `family-tutor-extension-${manifest.version}.zip`);
 fs.mkdirSync(siteDownloadDir, { recursive: true });
 fs.copyFileSync(output, siteDownload);
+fs.copyFileSync(output, versionedSiteDownload);
 
 console.log(JSON.stringify({
   version: manifest.version,
   file: path.relative(root, output),
   siteFile: path.relative(root, siteDownload),
+  versionedSiteFile: path.relative(root, versionedSiteDownload),
   bytes: bytes.length,
   sha256,
 }, null, 2));
