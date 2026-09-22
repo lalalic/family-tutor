@@ -12,14 +12,14 @@ function envelope(prompt) {
 test('kid and parent turns use typed data-only context envelopes',()=>{
   assert.deepEqual(envelope(buildKidContext({childId:'sammy',text:'help'})),{type:'kid',data:{childId:'sammy',studentMessage:'help'}});
   const parent=envelope(buildParentContextPrompt({child:{id:'sammy',name:'Sammy'},command:'!remind',value:'review fractions',authorId:'raw-author',messageId:'raw-message'}));
-  assert.deepEqual(parent,{type:'parent',data:{source:'parent',targetChild:'sammy',request:'reminder',message:'review fractions',delivery:{replyTo:'child',parentConfirmation:'runtime'}}});
+  assert.deepEqual(parent,{type:'parent',data:{source:'parent',targetChild:'sammy',message:'review fractions',delivery:{replyTo:'child',parentConfirmation:'runtime'}}});
   assert.doesNotMatch(JSON.stringify(parent),/raw-author|raw-message/);
 });
 
 test('parent status and reminder commands stay parent-routed by their logical target',()=>{
   assert.deepEqual(parseParentCommand('!remind sammy review fractions'),{command:'!remind',childId:'sammy',value:'review fractions'});
   const status=envelope(buildSlashStatusPrompt({child:{id:'sammy',name:'Sammy'},memory:'private transcript'}));
-  assert.deepEqual(status.data,{source:'parent',targetChild:'sammy',request:'status-command',message:'status',delivery:{replyTo:'parent',parentConfirmation:'none'}});
+  assert.deepEqual(status.data,{source:'parent',targetChild:'sammy',message:'status',delivery:{replyTo:'parent',parentConfirmation:'none'}});
 });
 
 
@@ -29,5 +29,5 @@ test('natural parent reminders route to the child and keep only confirmation in 
   const polite=parseParentMessage('please remind <#1234567890> to review quadratic equations',[{id:'sammy',name:'Sammy'}]);
   assert.deepEqual(polite,{command:'!remind',channelMentionId:'1234567890',value:'review quadratic equations'});
   const prompt=envelope(buildParentContextPrompt({child:{id:'sammy',name:'Sammy'},command:parsed.command,value:parsed.value}));
-  assert.deepEqual(prompt,{type:'parent',data:{source:'parent',targetChild:'sammy',request:'reminder',message:'do homework',delivery:{replyTo:'child',parentConfirmation:'runtime'}}});
+  assert.deepEqual(prompt,{type:'parent',data:{source:'parent',targetChild:'sammy',message:'do homework',delivery:{replyTo:'child',parentConfirmation:'runtime'}}});
 });

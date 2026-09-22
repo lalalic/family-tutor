@@ -22,11 +22,6 @@ export function renderParentNaturalText(input, channelMentionId, childName) {
   return normalizeWhitespace(String(input || '').replaceAll(`<#${channelMentionId}>`, childName));
 }
 
-function parentQueryType(value) {
-  return /(?:\?|\bhow(?:'s| is| are| was| were)?\b|\bstatus\b|\bprogress\b|\bdoing\b|\bgoing\b|\blearning\b|\bunderstand(?:ing)?\b|\bstruggl(?:e|es|ing)\b|\bimprov(?:e|ing|ement)\b|\brecent\b)/i.test(value)
-    ? 'status-question'
-    : 'guidance-assignment';
-}
 
 export function parseParentMessage(text, children) {
   const input = String(text || '').trim();
@@ -54,11 +49,13 @@ export function parseParentMessage(text, children) {
 }
 
 export function buildParentContextPrompt({ child, command, value, authorId, messageId, memory='' }) {
-  const type = command === '!ask' || command === '!status'
-    ? 'status-question'
-    : command === 'parent-query' ? parentQueryType(value) : 'guidance-assignment';
-  const request = command === '!remind' ? 'reminder' : type;
-  return buildParentRuntimeContext({ childId: child.id, requestType: request, message: value });
+  const reminder = command === '!remind';
+  return buildParentRuntimeContext({
+    childId: child.id,
+    message: value,
+    replyTo: reminder ? 'child' : 'parent',
+    parentConfirmation: reminder ? 'runtime' : 'none',
+  });
 }
 
 export const statusCommand = { name: 'status', description: 'Show a privacy-filtered learning status for one child or all children' };
@@ -86,7 +83,7 @@ export function validateChildChannel(child, channel) {
 }
 
 export function buildSlashStatusPrompt({ child, memory }) {
-  return buildParentRuntimeContext({ childId: child.id, requestType: 'status-command', message: 'status' });
+  return buildParentRuntimeContext({ childId: child.id, message: 'status', replyTo: 'parent', parentConfirmation: 'none' });
 }
 
 export function formatSlashStatus(child, text) {

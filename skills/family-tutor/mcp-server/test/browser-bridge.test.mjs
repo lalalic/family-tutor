@@ -82,7 +82,7 @@ test('serializes per child and rejects cross-child or unauthenticated access',as
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('preserves parent request data and adds only the active correlation id',async()=>{
+test('preserves parent context data and adds only the active correlation id',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-browser-parent-'));
   const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{}}).start();
   let socket;
@@ -102,13 +102,13 @@ test('preserves parent request data and adds only the active correlation id',asy
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"source":"parent","targetChild":"kid1","request":"reminder","message":"review fractions","delivery":{"replyTo":"child","parentConfirmation":"runtime"}}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"source":"parent","targetChild":"kid1","message":"review fractions","delivery":{"replyTo":"child","parentConfirmation":"runtime"}}}\n</FAMILY_TUTOR_CONTEXT>',
       origin:{channelId:'parent-channel-id',messageId:'parent-message-id'},
     });
     const payload=await message;
     const envelope=JSON.parse(payload.prompt.match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/)[1]);
     assert.equal(envelope.type,'parent');
-    assert.deepEqual(envelope.data,{source:'parent',targetChild:'kid1',request:'reminder',message:'review fractions',delivery:{replyTo:'child',parentConfirmation:'runtime'},correlationId:payload.correlation.correlationId});
+    assert.deepEqual(envelope.data,{source:'parent',targetChild:'kid1',message:'review fractions',delivery:{replyTo:'child',parentConfirmation:'runtime'},correlationId:payload.correlation.correlationId});
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
     const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
     assert.equal(firstReply.duplicate,undefined);
