@@ -16,14 +16,9 @@ export function buildKidContext({ childId, text, voiceTranscript = null }) {
   });
 }
 
-export function buildParentContext({ childId, message, replyTo = 'parent', parentConfirmation = 'none' }) {
+export function buildParentContext({ childId, text }) {
   return runtimeContext('parent', {
-    source: 'parent',
-    targetChild: childId,
-    message: String(message || ''),
-    delivery: {
-      replyTo,
-      parentConfirmation,
-    },
+    childId,
+    parentMessage: String(text || ''),
   });
 }

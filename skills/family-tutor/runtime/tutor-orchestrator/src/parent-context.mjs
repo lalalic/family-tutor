@@ -49,13 +49,7 @@ export function parseParentMessage(text, children) {
 }
 
 export function buildParentContextPrompt({ child, command, value, authorId, messageId, memory='' }) {
-  const reminder = command === '!remind';
-  return buildParentRuntimeContext({
-    childId: child.id,
-    message: value,
-    replyTo: reminder ? 'child' : 'parent',
-    parentConfirmation: reminder ? 'runtime' : 'none',
-  });
+  return buildParentRuntimeContext({ childId: child.id, text: value });
 }
 
 export const statusCommand = { name: 'status', description: 'Show a privacy-filtered learning status for one child or all children' };
@@ -83,7 +77,7 @@ export function validateChildChannel(child, channel) {
 }
 
 export function buildSlashStatusPrompt({ child, memory }) {
-  return buildParentRuntimeContext({ childId: child.id, message: 'status', replyTo: 'parent', parentConfirmation: 'none' });
+  return buildParentRuntimeContext({ childId: child.id, text: 'status' });
 }
 
 export function formatSlashStatus(child, text) {
