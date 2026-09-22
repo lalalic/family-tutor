@@ -74,7 +74,7 @@ Extension 2.4.0 uses the hosted bridge by default and obtains its extension sess
 
 ### Automatic family claim (2.6.2+)
 
-The normal hosted setup path no longer asks a parent to copy a token or manually start extension OAuth. After **Add to Discord**, Family Tutor redirects to `/setup/<short-lived-claim>`. Extension 2.6.6 recognizes that page, redeems the one-time claim, receives a family-scoped access/refresh session plus the configured learner names, and reconnects automatically. The popup then lists those learners so the parent only needs to link or relink each learner to the current ChatGPT Project/thread.
+The normal hosted setup path no longer asks a parent to copy a token or manually start extension OAuth. After **Add Family Tutor**, Family Tutor redirects to `/setup/<short-lived-claim>`. Extension 2.6.7 recognizes that page, redeems the one-time claim, receives a family-scoped access/refresh session plus the configured learner names, and reconnects automatically. The popup then lists those learners so the parent only needs to link or relink each learner to the current ChatGPT Project/thread.
 
 The setup page never receives the Discord guild ID, internal family ID, or long-lived credentials. Popup OAuth remains a relink/fallback path after the server already has a Family Installation.
 
@@ -87,3 +87,11 @@ Some ChatGPT install surfaces request an auth token instead of initiating OAuth.
 ## Setup Help
 
 The extension popup includes **Setup Help**. The page lists the full customer setup path: enable ChatGPT Developer Mode, create the Family Tutor ChatGPT app/MCP connection, prepare the dedicated auth token when requested, create/link one ChatGPT Project per kid, verify connection, and send a test message. **Try auto setup** is optional and best-effort; it may create/link missing kid projects, prepare the auth token, and open ChatGPT setup, but ChatGPT account/workspace confirmations remain user-controlled.
+
+
+During first-time setup, claiming the family session does not require Discord channels to be ready. Setup Help checks `/v1/setup/status` and shows a waiting state until the parent and all configured kid channels exist. It starts Project setup only after Discord is ready. When all Projects are linked, `/v1/setup/finish` sends idempotent welcome/help messages to each kid channel and the parent channel.
+
+
+## Chrome Web Store rollout
+
+The hosted service does not assume a single baked-in extension ID. Set `FAMILY_TUTOR_EXTENSION_IDS` to the comma-separated Chrome extension IDs accepted for setup/reconnect (for example, the Store ID plus a temporary pilot ID during migration). Set `FAMILY_TUTOR_EXTENSION_INSTALL_URL` to the Chrome Web Store listing URL once published; until then the setup hub falls back to the versioned self-hosted ZIP. These values change deployment configuration only and do not require another extension source release.

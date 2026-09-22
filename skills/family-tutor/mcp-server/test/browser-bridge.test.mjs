@@ -201,10 +201,14 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
 test('Discord install creates one-time family claim and family-scoped extension session',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-family-claim-'));
   const exchanges=[];
+  let setupState={discordReady:false,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:false},{id:'maggie',name:'Maggie',channelReady:false}]};
+  const finishCalls=[];
   const bridge=await new BrowserBridge({
     instanceDir:root,children:[{id:'sammy',name:'Sammy'},{id:'maggie',name:'Maggie'}],host:'127.0.0.1',port:0,
     token:'hosted-family-session-token-1234567890',replyToDiscord:async()=>{},
     discordOAuthExchange:async value=>{exchanges.push(value);return {guild:{id:value.hintedGuildId}};},
+    getSetupStatus:async()=>setupState,
+    finishSetup:async input=>{finishCalls.push(input);return {greetingsSent:true};},
   }).start();
   let socket;
   try{
@@ -230,8 +234,15 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
     assert.equal(setupPage.status,200);
     const setupHtml=await setupPage.text();
-    assert.match(setupHtml,/\/downloads\/family-tutor-extension-2\.6\.6\.zip/);
-    assert.match(setupHtml,/Load unpacked/);
+    assert.match(setupHtml,/\/downloads\/family-tutor-extension-2\.6\.7\.zip/);
+    assert.match(setupHtml,/Manual setup/);
+    assert.match(setupHtml,/Setup with Codex/);
+    assert.match(setupHtml,/Copy setup instructions for Codex/);
+    assert.match(setupHtml,/ChatGPT Developer Mode/);
+    assert.match(setupHtml,/https:\/\/family-tutor\.qili2\.com\/mcp/);
+    assert.match(setupHtml,/Sammy/);
+    assert.match(setupHtml,/Maggie/);
+    assert.match(setupHtml,new RegExp(claim));
     assert.equal(setupHtml.includes('guild-A'),false);
 
     const wrongClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:'wrong-'+claim})});
@@ -248,6 +259,21 @@ test('Discord install creates one-time family claim and family-scoped extension 
     const accessPayload=JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString('utf8'));
     assert.ok(accessPayload.family_id);
     assert.equal(JSON.stringify(session).includes('guild-A'),false);
+
+    const statusWaiting=await fetch(`${bridge.endpoint()}/v1/setup/status`,{headers:{authorization:`Bearer ${session.access_token}`}});
+    assert.equal(statusWaiting.status,200);
+    assert.equal((await statusWaiting.json()).discordReady,false);
+    const finishWaiting=await fetch(`${bridge.endpoint()}/v1/setup/finish`,{method:'POST',headers:{authorization:`Bearer ${session.access_token}`,'content-type':'application/json'},body:JSON.stringify({bindings:{sammy:'g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',maggie:'g-p-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}})});
+    assert.equal(finishWaiting.status,409);
+    assert.equal((await finishWaiting.json()).error,'discord_not_ready');
+    setupState={discordReady:true,parentReady:true,children:[{id:'sammy',name:'Sammy',channelReady:true},{id:'maggie',name:'Maggie',channelReady:true}]};
+    const finishMissing=await fetch(`${bridge.endpoint()}/v1/setup/finish`,{method:'POST',headers:{authorization:`Bearer ${session.access_token}`,'content-type':'application/json'},body:JSON.stringify({bindings:{sammy:'g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}})});
+    assert.equal(finishMissing.status,409);
+    assert.equal((await finishMissing.json()).error,'projects_not_ready');
+    const finishReady=await fetch(`${bridge.endpoint()}/v1/setup/finish`,{method:'POST',headers:{authorization:`Bearer ${session.access_token}`,'content-type':'application/json'},body:JSON.stringify({bindings:{sammy:'g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',maggie:'g-p-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}})});
+    assert.equal(finishReady.status,200);
+    assert.equal((await finishReady.json()).greetingsSent,true);
+    assert.equal(finishCalls.length,1);
 
     const manualUnauthorized=await fetch(`${bridge.endpoint()}/v1/chatgpt-auth-token`,{method:'POST'});
     assert.equal(manualUnauthorized.status,401);
@@ -266,6 +292,14 @@ test('Discord install creates one-time family claim and family-scoped extension 
 
     const replay=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
     assert.equal(replay.status,400);
+    const setupAfterClaim=await fetch(`${bridge.endpoint()}${setup.pathname}`);
+    assert.equal(setupAfterClaim.status,200);
+    const setupAfterHtml=await setupAfterClaim.text();
+    assert.match(setupAfterHtml,/Extension claim completed/);
+    assert.match(setupAfterHtml,/Setup with Codex/);
+
+    const invalidSetup=await fetch(`${bridge.endpoint()}/setup/not-a-real-claim`);
+    assert.equal(invalidSetup.status,410);
 
     const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:session.refresh_token,client_id:'family-tutor-extension',resource:'https://family-tutor.qili2.com/ws'});
     const refreshResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});

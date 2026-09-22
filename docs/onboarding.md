@@ -8,22 +8,15 @@ provider IDs, bearer tokens, and child messages inside trusted adapters.
 
 ## Customer path
 
-1. Confirm prerequisites: supported Chrome, ChatGPT Plus with Developer Mode,
-   the Family Tutor extension, and a Discord server where the owner can
-   authorize the shared bot.
-2. Connect ChatGPT to the hosted Family Tutor MCP endpoint. If the install UI
-   offers OAuth, use **Connect/Authorize**. If it asks for an auth token, open
-   the Family Tutor extension, choose **Connect ChatGPT**, and paste the copied
-   dedicated ChatGPT token. Never copy the extension session or refresh token.
-   Setup remains incomplete until both ChatGPT and MCP are reachable.
-3. Invite the shared Family Tutor Discord bot using the guided authorization
-   link. Never paste a bot token into onboarding.
-4. Choose one parent destination and one private child destination per learner.
-   The flow accepts logical keys only; the trusted Discord adapter resolves
-   those keys to provider channel IDs.
-5. After **Add to Discord**, let extension 2.6.6+ automatically redeem the short-lived Family Tutor setup claim. The extension receives only the family-scoped session and configured learner names. For each learner, visit the learner's ChatGPT Project/thread and use **Link**. The hosted relay must confirm every expected child socket before the Project step is ready; the flow never stores conversation transcripts.
-6. Run acceptance. The probe verifies same-child replies, concise parent
-   telemetry, and rejection of cross-family/cross-child routes.
+1. On the Family Tutor site, choose **Add Family Tutor**. If the user has no Discord account, Discord handles sign-in/account creation. If the user has no Discord server, instruct them to create a family server first, then restart **Add Family Tutor**; no setup claim exists until a server is selected.
+2. Discord opens. Choose the family server and authorize Family Tutor.
+3. Discord redirects back to the single `/setup/<claim>` setup hub. The page shows the short-lived setup code, the configured kids, the extension download, and two ways to continue: **Manual setup** or **Setup with Codex**.
+4. Manual setup follows the canonical checklist on that page: install the extension, let it claim the family, enable ChatGPT Developer Mode, add the Family Tutor MCP/app, create/link one ChatGPT Project per kid, then verify with a kid message and parent reminder.
+5. Setup with Codex copies the same canonical checklist plus the current setup URL/code. Codex should automate everything it safely can and stop only for Discord/ChatGPT security or authorization confirmations. It must not print or persist setup codes, auth/refresh tokens, provider IDs, or child conversation content.
+6. Extension 2.6.7+ automatically redeems the setup claim when the setup page is opened. Claim redemption is one-time, but the setup page remains usable through the claim lifetime so the user can finish the remaining steps from the same URL.
+7. Claiming establishes the family session even if Discord parent/kid channels are still being prepared. The extension shows a waiting state, polls setup readiness, and does not start ChatGPT Project setup until the channels are ready.
+8. After every kid Project is linked, finishing setup sends one idempotent welcome/help message to each kid channel and one to the parent channel.
+9. Run acceptance. Distinct child probes must return to their originating child destinations, parent reminders must reach the named child and confirm to the parent, and cross-family/cross-child routes must be rejected.
 
 ## Safe incomplete states
 

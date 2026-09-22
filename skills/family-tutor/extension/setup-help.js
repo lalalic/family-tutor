@@ -32,6 +32,9 @@ async function copyAuthToken(){
 }
 
 async function tryProjects(){
+  const setup=await chrome.runtime.sendMessage({type:'setup.status'});
+  if(setup?.error) throw new Error(setup.error);
+  if(!setup?.discordReady) throw new Error('Discord parent/kid channels are not ready yet.');
   const result=await chrome.runtime.sendMessage({type:'setup.projects'});
   if(result?.error)throw new Error(result.error);
   await renderKids();
@@ -71,16 +74,16 @@ $('#projects').addEventListener('click',async()=>{
 
 $('#refresh').addEventListener('click',async()=>{
   const current=await renderKids();
+  const setup=await chrome.runtime.sendMessage({type:'setup.status'}).catch(()=>({error:'Could not check Discord setup.'}));
   const kids=Array.isArray(current.children)?current.children:[];
   const linked=kids.filter((kid)=>current.bindings?.[kid.id]).length;
   const connected=current.health?.state==='connected';
-  setStatus(
-    $('#finish-status'),
-    connected&&linked===kids.length
-      ? `Ready: connected and ${linked}/${kids.length} kids linked.`
-      : `Connected: ${connected?'yes':'no'}. Kids linked: ${linked}/${kids.length}.`,
-    connected&&linked===kids.length?'ok':'',
-  );
+  if(setup?.error) return setStatus($('#finish-status'),setup.error,'error');
+  if(!setup.discordReady) return setStatus($('#finish-status'),'Connected. Waiting for the parent and kid Discord channels to be ready. You can leave this page open and check again.');
+  if(!connected||!kids.length||linked!==kids.length) return setStatus($('#finish-status'),`Discord is ready. Connected: ${connected?'yes':'no'}. Kids linked: ${linked}/${kids.length}.`);
+  const finished=await chrome.runtime.sendMessage({type:'setup.finish'});
+  if(finished?.error) return setStatus($('#finish-status'),finished.error,'error');
+  setStatus($('#finish-status'),`Ready: ${linked}/${kids.length} kids linked. Welcome/help messages sent to the kid and parent channels.`,'ok');
 });
 
 $('#auto-setup').addEventListener('click',async()=>{
