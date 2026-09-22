@@ -92,9 +92,27 @@ test('one hosted product composes Discord ingress, extension routing, ChatGPT MC
     assert.match(turn.prompt, /<FAMILY_TUTOR_CONTEXT>/);
     assert.match(turn.prompt, /\"type\":\"kid\"/);
     assert.match(turn.prompt, /\"childId\":\"alex\"/);
-    assert.match(turn.prompt, /\"correlationId\":\"/);
+    assert.doesNotMatch(turn.prompt, /correlationId/);
     assert.match(turn.prompt, /\"studentMessage\":\"Explain fractions\"/);
     assert.doesNotMatch(turn.prompt, /Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
+
+    const parentFanout = await product.ingestDiscordMessage({
+      providerChannelId: 'family-a-parent',
+      text: 'ask #alex to do homework, and #sam to draw poster',
+      messageId: 'parent-msg-a1',
+    });
+    assert.equal(parentFanout.length, 2);
+    const parentTurns = [await extensionA.nextTurn(), await extensionA.nextTurn()].sort((x, y) => x.childId.localeCompare(y.childId));
+    assert.deepEqual(parentTurns.map(item => item.childId), ['alex', 'sam']);
+    for (const parentTurn of parentTurns) {
+      assert.match(parentTurn.prompt, /\"type\":\"parent\"/);
+      assert.match(parentTurn.prompt, /ask #alex to do homework, and #sam to draw poster/);
+      assert.doesNotMatch(parentTurn.prompt, /correlationId/);
+    }
+    await assert.rejects(
+      product.ingestDiscordMessage({ providerChannelId: 'family-b-parent', text: 'ask #nobody to study', messageId: 'parent-msg-b1' }),
+      /mention at least one configured child/,
+    );
 
     const wrongFamilyReply = await product.mcp.callTool('reply_to_discord', {
       correlationId: inbound.correlationId,

@@ -150,10 +150,27 @@ export function createFamilyTutorProduct({
     };
   }
 
+  function mentionedChildren(familyId, text) {
+    const children = store.snapshot().families?.[familyId]?.children || [];
+    const body = String(text || '').toLowerCase();
+    return children.filter(child => {
+      const key = child.destination.key.toLowerCase();
+      const childId = child.childId.toLowerCase();
+      return body.includes(`#${key}`) || body.includes(`#${childId}`);
+    });
+  }
+
   async function ingestDiscordMessage({ providerChannelId, text = '', messageId = null }) {
     const route = discordAdapter.receiveTrusted({ providerChannelId });
-    if (route.destinationType !== 'child') throw new Error('parent Discord messages are not tutor turns');
-    return extensionRelay.ingest({ route, providerChannelId, text, messageId });
+    if (route.destinationType === 'child') {
+      return extensionRelay.ingest({ route, providerChannelId, text, messageId, actor: 'kid' });
+    }
+    const children = mentionedChildren(route.familyId, text);
+    if (children.length === 0) throw new Error('parent message must mention at least one configured child');
+    return Promise.all(children.map(child => extensionRelay.ingest({
+      route: { familyId: route.familyId, destinationType: 'child', destinationKey: child.destination.key, childId: child.childId },
+      providerChannelId, text, messageId, actor: 'parent',
+    })));
   }
 
   const readiness = createReadinessChecks({ storage: store, provider });
