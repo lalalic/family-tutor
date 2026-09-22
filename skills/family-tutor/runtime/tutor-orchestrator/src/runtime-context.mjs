@@ -17,9 +17,15 @@ export function buildKidContext({ childId, text, voiceTranscript = null }) {
 }
 
 export function buildParentContext({ childId, requestType, message }) {
+  const reminder = requestType === 'reminder';
   return runtimeContext('parent', {
+    source: 'parent',
     targetChild: childId,
     request: requestType,
     message: String(message || ''),
+    delivery: {
+      replyTo: reminder ? 'child' : 'parent',
+      parentConfirmation: reminder ? 'runtime' : 'none',
+    },
   });
 }

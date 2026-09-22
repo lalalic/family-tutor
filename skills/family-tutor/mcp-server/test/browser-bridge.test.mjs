@@ -102,13 +102,13 @@ test('preserves parent request data and adds only the active correlation id',asy
     });
     const turnPromise=bridge.turn({
       childId:'kid1',
-      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"targetChild":"kid1","request":"reminder","message":"review fractions"}}\n</FAMILY_TUTOR_CONTEXT>',
+      prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"parent","data":{"source":"parent","targetChild":"kid1","request":"reminder","message":"review fractions","delivery":{"replyTo":"child","parentConfirmation":"runtime"}}}\n</FAMILY_TUTOR_CONTEXT>',
       origin:{channelId:'parent-channel-id',messageId:'parent-message-id'},
     });
     const payload=await message;
     const envelope=JSON.parse(payload.prompt.match(/<FAMILY_TUTOR_CONTEXT>\n([\s\S]+)\n<\/FAMILY_TUTOR_CONTEXT>/)[1]);
     assert.equal(envelope.type,'parent');
-    assert.deepEqual(envelope.data,{targetChild:'kid1',request:'reminder',message:'review fractions',correlationId:payload.correlation.correlationId});
+    assert.deepEqual(envelope.data,{source:'parent',targetChild:'kid1',request:'reminder',message:'review fractions',delivery:{replyTo:'child',parentConfirmation:'runtime'},correlationId:payload.correlation.correlationId});
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|parent-channel-id|parent-message-id/);
     const firstReply=await bridge.reply(payload.correlation.correlationId,'done');
     assert.equal(firstReply.duplicate,undefined);
