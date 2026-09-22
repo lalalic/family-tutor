@@ -78,6 +78,7 @@ export class BrowserBridge {
     this.rotationPending=new Map();
     this.childSockets=new Map();
     this.childVersions=new Map();
+    this.threadAckHashes=new Map();
     this.server=null;
     this.wsServer=null;
     this.token=null;
@@ -548,7 +549,12 @@ export class BrowserBridge {
         if(this.rotationPending.has(childId)) this.rotationPending.delete(childId);
         return;
       }
-      if(message?.type==='turn.ack') return;
+      if(message?.type==='turn.ack'){
+        const childId=String(message.childId||'').trim();
+        const threadUrl=String(message.threadUrl||'').trim();
+        if(this.children.has(childId)&&threadUrl) this.threadAckHashes.set(childId,crypto.createHash('sha256').update(threadUrl).digest('hex'));
+        return;
+      }
       if(message?.type==='extension.ping') return;
       if(message?.type==='tab.bind'){
         const childId=String(message.childId||'').trim();
@@ -712,7 +718,7 @@ export class BrowserBridge {
       return json(res,200,turn);
     }
     if(req.method==='GET'&&url.pathname==='/v1/status'){
-      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),lastExtensionError:this.lastExtensionError});
+      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),threadAckHashes:Object.fromEntries([...this.threadAckHashes.entries()].sort()),lastExtensionError:this.lastExtensionError});
     }
     if(req.method==='POST'&&/^\/v1\/turns\/[^/]+\/failed$/.test(url.pathname)){
       const id=decodeURIComponent(url.pathname.split('/')[3]);

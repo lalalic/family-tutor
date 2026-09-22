@@ -48,6 +48,11 @@ test('pushes correlated image turn over WebSocket and MCP replies to exact origi
     assert.doesNotMatch(payload.prompt,/Family Tutor Discord delivery|reply_to_discord|progress|final=true/);
     assert.equal(payload.correlation.correlationId.length>20,true);
     assert.equal(payload.origin,undefined);
+    const threadUrl='https://chatgpt.com/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/project/c/thread-one';
+    socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:payload.correlation,threadUrl}));
+    await new Promise(resolve=>setTimeout(resolve,10));
+    const statusWithAck=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
+    assert.equal(statusWithAck.threadAckHashes.kid1,crypto.createHash('sha256').update(threadUrl).digest('hex'));
     const blobUrl=new URL(payload.attachments[0].url);
     blobUrl.searchParams.set('token',payload.attachments[0].token);
     const blob=await fetch(blobUrl); assert.equal(await blob.text(),'private-image');
