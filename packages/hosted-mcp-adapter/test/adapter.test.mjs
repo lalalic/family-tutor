@@ -163,3 +163,33 @@ test('serves content-free liveness and readiness probes', async () => {
     await server.close();
   }
 });
+
+test('serves the learner profile template and canonical bootstrap without learner state', async () => {
+  const { store } = setup();
+  const adapter = createHostedMcpAdapter({ store });
+  const server = createHostedMcpServer({
+    adapter,
+    learnerProfileTemplate: {
+      template: 'profile-template',
+      bootstrapUrl: 'https://family-tutor.qili2.com/bootstrap/latest',
+      path: '/v1/learner-profile-template',
+    },
+    latestBootstrap: 'bootstrap-behaviour',
+  });
+  await server.start();
+  try {
+    const base = server.endpoint().replace('/mcp', '');
+    const template = await fetch(`${base}/v1/learner-profile-template`);
+    assert.equal(template.status, 200);
+    assert.deepEqual(await template.json(), {
+      template: 'profile-template',
+      bootstrapUrl: 'https://family-tutor.qili2.com/bootstrap/latest',
+      path: '/v1/learner-profile-template',
+    });
+    const bootstrap = await fetch(`${base}/bootstrap/latest`);
+    assert.equal(bootstrap.status, 200);
+    assert.equal(await bootstrap.text(), 'bootstrap-behaviour');
+  } finally {
+    await server.close();
+  }
+});

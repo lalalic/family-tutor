@@ -83,8 +83,12 @@ test('best-effort setup automation creates only missing kid projects and preserv
   assert.match(background,/message\?\.type === 'setup\.projects'/);
   assert.match(automation,/children\.filter\(\(child\) => !current\.bindings\?\.\[child\.id\]\)/);
   assert.match(automation,/setup\.project\.ensure/);
-  assert.match(content,/async function ensureProject\(projectName\)/);
+  assert.match(content,/async function ensureProject\(projectName, instructions = ''\)/);
   assert.match(content,/Open ChatGPT and create a Project named/);
+  assert.match(background,/v1\/learner-profile-template/);
+  assert.match(automation,/getLearnerProfileTemplate/);
+  assert.match(automation,/instructions: profile\.template/);
+  assert.match(content,/applyProjectInstructions/);
 });
 
 
