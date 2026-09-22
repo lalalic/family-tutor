@@ -6,7 +6,8 @@ const statusDot = document.querySelector('#status-dot');
 const statusLabel = document.querySelector('#status-label');
 const kidCount = document.querySelector('#kid-count');
 const refreshKids = document.querySelector('#refresh-kids');
-const setupGuide = document.querySelector('#setup-guide');
+const homeLink = document.querySelector('#home-link');
+const guideLink = document.querySelector('#guide-link');
 const autoSetup = document.querySelector('#auto-setup');
 const reconnect = document.querySelector('#reconnect');
 const chatgptConnect = document.querySelector('#chatgpt-connect');
@@ -140,7 +141,14 @@ async function refreshKidsFromDiscord() {
 
 refreshKids.addEventListener('click', refreshKidsFromDiscord);
 
-setupGuide.addEventListener('click', async () => {
+homeLink.addEventListener('click', async (event) => {
+  event.preventDefault();
+  await chrome.tabs.create({ url: 'https://family-tutor.qili2.com/' });
+  window.close();
+});
+
+guideLink.addEventListener('click', async (event) => {
+  event.preventDefault();
   await chrome.tabs.create({ url: 'https://family-tutor.qili2.com/setup' });
   window.close();
 });

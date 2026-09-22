@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.10');
+  assert.equal(manifest.version,'2.6.11');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -58,11 +58,13 @@ test('thread rollover clears the active thread and binds the next durable conver
 test('popup refreshes Discord kids, links to hosted setup, and exposes auto setup',()=>{
   const popup=fs.readFileSync(path.join(root,'popup.html'),'utf8');
   const popupJs=fs.readFileSync(path.join(root,'popup.js'),'utf8');
-  assert.match(popup,/Refresh kids from Discord/);
-  assert.match(popup,/Setup guide/);
+  assert.match(popup,/id="refresh-kids"/);
+  assert.match(popup,/id="home-link"[\s\S]*Family Tutor/);
+  assert.match(popup,/id="guide-link"[\s\S]*Guide/);
   assert.match(popup,/Try auto setup/);
   assert.doesNotMatch(popup,/Add kid/);
   assert.match(popupJs,/type: 'setup\.status'/);
+  assert.match(popupJs,/https:\/\/family-tutor\.qili2\.com\//);
   assert.match(popupJs,/https:\/\/family-tutor\.qili2\.com\/setup/);
   assert.match(popupJs,/type: 'setup\.projects'/);
   assert.match(popupJs,/type: 'setup\.openDeveloperMode'/);

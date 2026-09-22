@@ -23,16 +23,23 @@
   .shell{padding:16px}
   .header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
   .brand{display:flex;align-items:center;gap:10px}
-  .brand-mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--brand);color:#fff;font-weight:750}
+  .brand a{color:inherit;text-decoration:none}
+  .brand a:hover{color:var(--brand)}
   .brand strong{font-size:14px}
+  .top-links{display:flex;align-items:center;gap:10px}
+  .guide-link{color:var(--brand);text-decoration:none;font-size:12px;font-weight:650}
   .status{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--gray)}
   .dot.connected{background:var(--green)}
   .dot.recovering{background:var(--amber)}
   .dot.error{background:var(--red)}
   .section-head{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
+  .section-title{display:flex;align-items:center;gap:4px}
   .section-head strong{font-size:13px}
   .count{color:var(--muted);font-size:11px}
+  .refresh-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;cursor:pointer;display:grid;place-items:center;color:var(--brand);font-size:16px;line-height:1}
+  .refresh-btn:hover{background:var(--soft)}
+  .refresh-btn:disabled{cursor:default;opacity:.55}
   .kids{border:1px solid var(--line);border-radius:12px;overflow:hidden;max-height:340px;overflow-y:auto}
   .kid{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--line)}
   .kid:last-child{border-bottom:0}
@@ -43,8 +50,6 @@
   .icon-btn:disabled{cursor:default;opacity:.55}
   .linked{color:var(--green);font-weight:800}
   .previously-linked{background:var(--brand-soft);color:var(--brand)}
-  .menu-link{display:inline-flex;margin-top:10px;border:0;background:transparent;color:var(--brand);padding:0;cursor:pointer;font-weight:650}
-  .menu-link:disabled{color:var(--muted);cursor:default;opacity:.55}
   .notice{display:none;margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--soft);color:var(--muted);font-size:11px}
   .notice.show{display:block}
   .notice.error{background:#fff1f2;color:#991b1b}
@@ -58,18 +63,15 @@
 <body>
 <div class="shell">
   <div class="header">
-    <div class="brand"><div class="brand-mark">FT</div><strong>Family Tutor</strong></div>
+    <div class="brand top-links"><strong><a id="home-link" href="#">Family Tutor</a></strong><a id="guide-link" class="guide-link" href="#">Guide</a></div>
     <div class="status"><span id="status-dot" class="dot"></span><span id="status-label">Checking</span></div>
   </div>
 
   <div class="section-head">
-    <strong>Kids</strong>
+    <div class="section-title"><strong>Kids</strong><button id="refresh-kids" class="refresh-btn" type="button" title="Refresh kids from Discord" aria-label="Refresh kids from Discord">↻</button></div>
     <span id="kid-count" class="count"></span>
   </div>
   <div id="children" class="kids"></div>
-
-  <button id="refresh-kids" class="menu-link" type="button">↻ Refresh kids from Discord</button>
-  <button id="setup-guide" class="menu-link" type="button">Setup guide</button>
 
   <div id="notice" class="notice"></div>
   <button id="auto-setup" class="auto-setup" type="button">Try auto setup</button>
