@@ -71,6 +71,15 @@ The toolbar badge shows the number of children currently bound to ChatGPT Projec
 
 Extension 2.4.0 uses the hosted bridge by default and obtains its extension session through OAuth/PKCE in the popup. Click **Connect Family Tutor**. The extension opens the Family Tutor OAuth/PKCE flow using Chrome Identity, exchanges the one-time authorization code for an extension-scoped session token, stores the extension access/refresh session in extension-local storage, silently refreshes the short-lived access token when needed, and then connects to `wss://family-tutor.qili2.com/ws`. Users do not copy or manage a family token. A hosted connection is not considered ready until the server authenticates the extension session and every expected child binding has reported `tab.bind`.
 
+During optional project setup, the extension fetches the generic learner Project
+Instructions template from `/v1/learner-profile-template` and applies it to each
+new or reused ChatGPT Project. The response contains only Neo's bootstrap link,
+one-learner isolation wording, and editable profile placeholders. Learner values
+are entered in ChatGPT Project Instructions; Family Tutor does not persist learner
+profiles on its servers. The bootstrap is served at
+`https://family-tutor.qili2.com/bootstrap/latest`, and current tool discovery
+determines available capabilities.
+
 
 ### Automatic family claim (2.6.2+)
 

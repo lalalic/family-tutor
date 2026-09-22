@@ -20,6 +20,7 @@ export async function setupKidProjects({
   reconcile,
   report,
   syncHealth,
+  getLearnerProfileTemplate,
 }) {
   const missing = children.filter((child) => !current.bindings?.[child.id]);
   if (!missing.length) return { linked: children.length, created: 0, reused: 0 };
@@ -29,11 +30,12 @@ export async function setupKidProjects({
   await waitForTabComplete(tab.id);
 
   let bindings = { ...current.bindings };
+  const profile = await getLearnerProfileTemplate();
   let created = 0;
   let reused = 0;
 
   for (const child of missing) {
-    const request = { type: 'setup.project.ensure', name: child.name || child.id };
+    const request = { type: 'setup.project.ensure', name: child.name || child.id, instructions: profile.template };
     let result;
     try {
       result = await chrome.tabs.sendMessage(tab.id, request);

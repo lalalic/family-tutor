@@ -22,6 +22,7 @@ function defaultHealth() {
 }
 
 const OAUTH_ORIGIN = 'https://family-tutor.qili2.com';
+const LEARNER_PROFILE_TEMPLATE_URL = `${OAUTH_ORIGIN}/v1/learner-profile-template`;
 const OAUTH_CLIENT_ID = 'family-tutor-extension';
 const OAUTH_RESOURCE = `${OAUTH_ORIGIN}/ws`;
 
@@ -163,6 +164,19 @@ async function fetchChatGptAuthToken() {
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.auth_token) throw new Error(result.message || result.error || 'Could not prepare ChatGPT connection.');
   return result.auth_token;
+}
+
+async function fetchLearnerProfileTemplate() {
+  const accessToken = await validExtensionAccessToken();
+  const response = await fetch(LEARNER_PROFILE_TEMPLATE_URL, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.template !== 'string' || !result.template.trim()) {
+    throw new Error(result.message || result.error || 'Could not load the learner Project Instructions template.');
+  }
+  return result;
 }
 
 const ACTION_ICON_PATHS = Object.freeze({
@@ -743,6 +757,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       reconcile: () => reconcileFamilyTabs(),
       report: reportBindings,
       syncHealth: syncActionHealth,
+      getLearnerProfileTemplate: fetchLearnerProfileTemplate,
     })).then((result) => respond({ ok: true, ...result }))
       .catch((error) => respond({ error: safeErrorMessage(error) }));
     return true;
