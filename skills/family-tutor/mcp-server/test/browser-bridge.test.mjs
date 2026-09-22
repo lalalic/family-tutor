@@ -227,6 +227,12 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.match(setup.pathname,/^\/setup\/[A-Za-z0-9_-]+$/);
     assert.equal(setup.href.includes('guild-A'),false);
     const claim=decodeURIComponent(setup.pathname.split('/').pop());
+    const setupPage=await fetch(`${bridge.endpoint()}${setup.pathname}`);
+    assert.equal(setupPage.status,200);
+    const setupHtml=await setupPage.text();
+    assert.match(setupHtml,/\/downloads\/family-tutor-extension\.zip/);
+    assert.match(setupHtml,/Load unpacked/);
+    assert.equal(setupHtml.includes('guild-A'),false);
 
     const wrongClaim=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim:'wrong-'+claim})});
     assert.equal(wrongClaim.status,400);
