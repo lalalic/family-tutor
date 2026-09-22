@@ -502,3 +502,72 @@ test('reply_to_discord can send by correlation or embedded channel handle',async
     assert.equal((await both.json()).result.isError,true);
   }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('e2e id matrix routes inbound correlations and explicit channel targets',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-id-matrix-'));
+  const replies=[];
+  const sends=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,
+    children:[{id:'sammy',name:'Sammy'}],
+    host:'127.0.0.1',
+    port:0,
+    replyToDiscord:async value=>replies.push(value),
+    sendToDiscord:async value=>sends.push(value),
+  }).start();
+  try{
+    const token=bridge.token;
+    const sammyChannelId=bridge.channelHandle('discord-sammy-channel');
+
+    // Case 1: kid inbound -> correlationId replies to kid origin.
+    await bridge.enqueue({
+      childId:'sammy',
+      text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Sammy","message":"what is 7x8?"}}\n</FAMILY_TUTOR_CONTEXT>',
+      origin:{channelId:'discord-sammy-channel',messageId:'kid-message-1'},
+    });
+    const kidTurn=bridge.next('sammy');
+    const kidReply=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:11,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:kidTurn.correlationId,text:'56',final:true}}});
+    assert.equal((await kidReply.json()).result.isError,undefined);
+    assert.equal(replies.at(-1).origin.channelId,'discord-sammy-channel');
+    assert.equal(replies.at(-1).origin.messageId,'kid-message-1');
+
+    // Case 2: parent query -> correlationId replies to parent origin.
+    await bridge.enqueue({
+      childId:'sammy',
+      text:`<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({type:'parent',data:{senderName:'Parents',message:`how is @sammy(channelId=${sammyChannelId}) doing?`}})}\n</FAMILY_TUTOR_CONTEXT>`,
+      origin:{channelId:'discord-parents-channel',messageId:'parent-message-1'},
+    });
+    const parentTurn=bridge.next('sammy');
+    assert.match(parentTurn.text,new RegExp(`@sammy\\(channelId=${sammyChannelId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\)`));
+    const parentReply=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:12,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:parentTurn.correlationId,text:'Sammy is making progress.',final:true}}});
+    assert.equal((await parentReply.json()).result.isError,undefined);
+    assert.equal(replies.at(-1).origin.channelId,'discord-parents-channel');
+    assert.equal(replies.at(-1).origin.messageId,'parent-message-1');
+
+    // Case 3: parent reminder -> channelId sends to Sammy, correlationId confirms parent.
+    await bridge.enqueue({
+      childId:'sammy',
+      text:`<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({type:'parent',data:{senderName:'Parents',message:`remind @sammy(channelId=${sammyChannelId}) to do homework`}})}\n</FAMILY_TUTOR_CONTEXT>`,
+      origin:{channelId:'discord-parents-channel',messageId:'parent-message-2'},
+    });
+    const remindTurn=bridge.next('sammy');
+    const toSammy=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:13,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId:sammyChannelId,text:'Time to do your homework.'}}});
+    assert.equal((await toSammy.json()).result.isError,undefined);
+    assert.deepEqual(sends.at(-1),{channelId:'discord-sammy-channel',text:'Time to do your homework.'});
+    const confirm=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:14,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:remindTurn.correlationId,text:'Reminder sent to Sammy.',final:true}}});
+    assert.equal((await confirm.json()).result.isError,undefined);
+    assert.equal(replies.at(-1).origin.channelId,'discord-parents-channel');
+    assert.equal(replies.at(-1).origin.messageId,'parent-message-2');
+
+    // Cases 4-6: invalid addressing is rejected.
+    const both=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:15,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:'corr',channelId:sammyChannelId,text:'bad'}}});
+    assert.equal((await both.json()).result.isError,true);
+    const neither=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:16,method:'tools/call',params:{name:'reply_to_discord',arguments:{text:'bad'}}});
+    assert.equal((await neither.json()).result.isError,true);
+    const unknown=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:17,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId:'ch_AAAAAAAAAAAAAAAAAAAAAAAA',text:'bad'}}});
+    assert.equal((await unknown.json()).result.isError,true);
+  }finally{
+    await bridge.stop();
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
