@@ -480,3 +480,39 @@ test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
     ]]);
   }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
+
+
+test('reply_to_discord accepts exactly one of correlationId or channelId',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-channel-send-'));
+  const sent=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,
+    replyToDiscord:async()=>{},
+    sendToDiscord:async value=>sent.push(value),
+  }).start();
+  try{
+    const token=bridge.token;
+    const channelId=bridge.channelHandle('discord-channel-123');
+    assert.match(channelId,/^ch_[A-Za-z0-9_-]{24}$/);
+    assert.equal(channelId,bridge.channelHandle('discord-channel-123'));
+
+    const list=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:1,method:'tools/list'});
+    const schema=(await list.json()).result.tools.find(tool=>tool.name==='reply_to_discord').inputSchema;
+    assert.deepEqual(schema.required,['text']);
+    assert.ok(schema.properties.correlationId);
+    assert.ok(schema.properties.channelId);
+    assert.equal(schema.oneOf.length,2);
+
+    const send=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,text:'hello'}}});
+    const sendBody=await send.json();
+    assert.equal(sendBody.result.isError,undefined);
+    assert.deepEqual(sent,[{channelId:'discord-channel-123',text:'hello'}]);
+
+    const both=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,correlationId:'corr',text:'bad'}}});
+    assert.equal((await both.json()).result.isError,true);
+    const neither=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'reply_to_discord',arguments:{text:'bad'}}});
+    assert.equal((await neither.json()).result.isError,true);
+    const channelFinal=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,text:'bad',final:true}}});
+    assert.equal((await channelFinal.json()).result.isError,true);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});

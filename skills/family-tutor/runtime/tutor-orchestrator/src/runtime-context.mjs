@@ -24,10 +24,10 @@ function messageContext(type,{ senderChannelId, senderName, message, attachments
   });
 }
 
-export function buildKidContext({ childId, childName, text, attachments = [] }) {
-  return messageContext('kid', { senderChannelId: childId, senderName: childName || childId, message: text, attachments });
+export function buildKidContext({ channelId, childName, text, attachments = [] }) {
+  return messageContext('kid', { senderChannelId: channelId, senderName: childName || 'Kid', message: text, attachments });
 }
 
-export function buildParentContext({ text, attachments = [] }) {
-  return messageContext('parent', { senderChannelId: 'parents', senderName: 'Parents', message: text, attachments });
+export function buildParentContext({ channelId, text, attachments = [] }) {
+  return messageContext('parent', { senderChannelId: channelId, senderName: 'Parents', message: text, attachments });
 }

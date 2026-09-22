@@ -18,7 +18,7 @@ The extension connects to the fixed loopback browser bridge as implementation pl
 
 The bridge keeps one active correlation per child, downloads image inputs into ignored private runtime storage, and never exposes Discord channel/thread/message ids to ChatGPT. The same loopback server exposes MCP JSON-RPC at `POST /mcp` with one tool:
 
-- `reply_to_discord({ correlationId, text, final })` replies to the exact originating Discord message. Use `final: false` for a concise progress update and `final: true` for the final response. The correlation and transient image blobs remain active until the final reply.
+- `reply_to_discord` has two mutually exclusive address modes. `{ correlationId, text, final? }` replies to the exact active inbound Discord turn; `{ channelId, text }` sends a new message to an opaque Family Tutor channel. Never provide both IDs. `final` is valid only with `correlationId`. Channel IDs are opaque bridge-issued handles, not Discord snowflakes.
 
 MCP HTTP access remains authenticated by private runtime credentials. Extension Project assignment is intentionally separate from MCP authentication.
 

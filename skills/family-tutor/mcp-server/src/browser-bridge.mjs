@@ -53,7 +53,7 @@ function contextWithCorrelation(prompt,correlationId){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
@@ -63,6 +63,9 @@ export class BrowserBridge {
     this.port=Number(port);
     this.fetchImpl=fetchImpl;
     this.replyToDiscord=replyToDiscord;
+    this.sendToDiscord=sendToDiscord;
+    this.channelHandles=new Map();
+    this.providerChannels=new Map();
     this.addChild=addChild;
     this.deleteChild=deleteChild;
     this.ttlMs=ttlMs;
@@ -357,6 +360,30 @@ export class BrowserBridge {
     return turn;
   }
 
+  channelHandle(providerChannelId){
+    const providerId=String(providerChannelId||'').trim();
+    if(!providerId) throw new Error('provider channel id is required');
+    if(!this.token) throw new Error('browser bridge is not started');
+    const existing=this.providerChannels.get(providerId);
+    if(existing) return existing;
+    const digest=crypto.createHmac('sha256',this.token).update(`channel:${providerId}`).digest('base64url').slice(0,24);
+    const handle=`ch_${digest}`;
+    this.providerChannels.set(providerId,handle);
+    this.channelHandles.set(handle,providerId);
+    return handle;
+  }
+
+  async send(channelId,text){
+    const handle=String(channelId||'').trim();
+    const providerChannelId=this.channelHandles.get(handle);
+    if(!providerChannelId) throw new Error('unknown channel id');
+    const clean=String(text||'').trim();
+    if(!clean) throw new Error('reply text is required');
+    if(!this.sendToDiscord) throw new Error('no Discord channel send handler');
+    await this.sendToDiscord({channelId:providerChannelId,text:clean});
+    return {ok:true,channelId:handle};
+  }
+
   async turn({childId,prompt,attachments=[],origin,reply}){
     const turn=await this.enqueue({childId,text:prompt,attachments,origin,reply});
     const state=this.correlations.get(turn.correlationId);
@@ -555,12 +582,22 @@ export class BrowserBridge {
     if(method==='notifications/initialized') return null;
     if(method==='ping') return {jsonrpc:'2.0',id,result:{}};
     if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[
-      {name:'reply_to_discord',title:'Reply to Discord',description:'Reply to the exact Discord child message associated with an active Family Tutor correlation id. Use final=false for a concise progress update and final=true for the final response.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor reply…','openai/toolInvocation/invoked':'Family Tutor reply sent'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId','text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},text:{type:'string',minLength:1,maxLength:12000,description:'Student-facing reply text to send to the originating Discord message.'},final:{type:'boolean',default:true,description:'Set false for a progress update and true for the final reply.'}}}},
+      {name:'reply_to_discord',title:'Send to Discord',description:'Send a Family Tutor Discord message using exactly one address: correlationId replies to the exact active inbound turn; channelId sends a new message to an opaque Family Tutor channel. final applies only to correlationId replies.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor message…','openai/toolInvocation/invoked':'Family Tutor message sent'},inputSchema:{type:'object',additionalProperties:false,required:['text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id for replying to one active inbound Discord turn.'},channelId:{type:'string',pattern:'^ch_[A-Za-z0-9_-]{24}$',description:'Opaque Family Tutor channel id for sending a new Discord message.'},text:{type:'string',minLength:1,maxLength:12000,description:'Message text to send.'},final:{type:'boolean',default:true,description:'For correlationId replies only: false sends progress, true completes the active turn.'}},oneOf:[{required:['correlationId'],not:{required:['channelId']}},{required:['channelId'],not:{required:['correlationId','final']}}]}},
       {name:'request_new_thread',title:'Refresh Tutor Context',description:'Request that Family Tutor transparently use a fresh ChatGPT thread for this learner starting with the next Discord turn. Use when the current conversation is very long, accumulated unrelated or stale context is reducing tutoring quality, many separate homework sessions or topics have built up, or a natural session boundary arrives after substantial conversation. Do not use for a single topic change, a short conversation, a temporary response/tool error, or when preserving the immediate conversation context is important. Request rollover only once for the same transition.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
     ]}};
     if(method==='tools/call'){
       try{
-        if(params?.name==='reply_to_discord') return {jsonrpc:'2.0',id,result:textResult(await this.reply(params.arguments?.correlationId,params.arguments?.text,{final:params.arguments?.final!==false}))};
+        if(params?.name==='reply_to_discord'){
+          const args=params.arguments||{};
+          const hasCorrelation=typeof args.correlationId==='string'&&args.correlationId.trim();
+          const hasChannel=typeof args.channelId==='string'&&args.channelId.trim();
+          if(Boolean(hasCorrelation)===Boolean(hasChannel)) throw new Error('provide exactly one of correlationId or channelId');
+          if(hasChannel){
+            if(args.final!==undefined) throw new Error('final is only valid with correlationId');
+            return {jsonrpc:'2.0',id,result:textResult(await this.send(args.channelId,args.text))};
+          }
+          return {jsonrpc:'2.0',id,result:textResult(await this.reply(args.correlationId,args.text,{final:args.final!==false}))};
+        }
         if(params?.name==='request_new_thread'){
           const correlationId=String(params.arguments?.correlationId||'');
           const state=this.correlations.get(correlationId);
