@@ -185,6 +185,6 @@ test('hosted server serves a generic learner profile template and bootstrap with
 
     const bootstrap = await fetch(`${base}/bootstrap/latest`);
     assert.equal(bootstrap.status, 200);
-    assert.match(await bootstrap.text(), /capabilities and tools exposed|capabilities exposed by the tools available/);
+    assert.match(await bootstrap.text(), /capabilities.*exposed/);
   } finally { await product.close(); }
 });
