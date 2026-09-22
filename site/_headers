@@ -5,7 +5,10 @@
   Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'none'; connect-src 'none'
   Cache-Control: no-cache
 
-/styles-20260922-v2.css
+/styles-20260922-v3.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/hero-family.jpg
   Cache-Control: public, max-age=31536000, immutable
 
 /family-tutor-visual.webp
