@@ -5,8 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
-const MAX_IMAGE_BYTES=12*1024*1024;
-const MAX_AUDIO_BYTES=25*1024*1024;
+const MAX_ATTACHMENT_BYTES=25*1024*1024;
 const MAX_ATTACHMENTS=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
@@ -16,15 +15,7 @@ const SETUP_CLAIM_TTL_MS=10*60*1000;
 function safeName(name='attachment'){
   return path.basename(String(name)).replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,120)||'attachment';
 }
-function isImage(a){
-  const type=String(a?.mimeType||a?.contentType||'').toLowerCase();
-  return type.startsWith('image/')||/\.(png|jpe?g|webp|gif|heic|heif)$/i.test(a?.name||'');
-}
-function isAudio(a){
-  const type=String(a?.mimeType||a?.contentType||'').toLowerCase();
-  return type.startsWith('audio/')||/\.(mp3|m4a|aac|wav|ogg|oga|opus|webm|flac)$/i.test(a?.name||'');
-}
-function attachmentLimit(a){return isAudio(a)?MAX_AUDIO_BYTES:MAX_IMAGE_BYTES;}
+function attachmentLimit(){return MAX_ATTACHMENT_BYTES;}
 async function readJson(req,maxBytes=256*1024){
   const chunks=[]; let size=0;
   for await(const chunk of req){
@@ -334,7 +325,7 @@ export class BrowserBridge {
     if(!this.children.has(childId)) throw new Error('unknown child');
     const correlationId=crypto.randomUUID();
     const expiresAt=Date.now()+this.ttlMs;
-    const attachmentInputs=attachments.filter(input=>isImage(input)||isAudio(input)).slice(0,MAX_ATTACHMENTS);
+    const attachmentInputs=attachments.filter(input=>input&&input.url).slice(0,MAX_ATTACHMENTS);
     const blobDir=path.join(this.blobRoot,correlationId);
     const files=[];
     if(attachmentInputs.length) await fsp.mkdir(blobDir,{recursive:true,mode:0o700});
@@ -350,7 +341,7 @@ export class BrowserBridge {
         if(bytes.length>limit) throw new Error(`${input.name||'attachment'} exceeds ${limitMb} MB`);
         const name=`${i+1}-${safeName(input.name)}`;
         await fsp.writeFile(path.join(blobDir,name),bytes,{mode:0o600});
-        files.push({name,mimeType:input.mimeType||input.contentType||'application/octet-stream',size:bytes.length,url:`${this.endpoint()}/v1/blobs/${correlationId}/${encodeURIComponent(name)}`});
+        files.push({name,mimeType:input.mimeType||input.contentType||response.headers.get('content-type')||'application/octet-stream',size:bytes.length,url:`${this.endpoint()}/v1/blobs/${correlationId}/${encodeURIComponent(name)}`});
       }
     }catch(error){
       await fsp.rm(blobDir,{recursive:true,force:true}).catch(()=>{});

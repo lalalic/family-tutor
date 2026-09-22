@@ -426,3 +426,31 @@ test('preserves Discord audio attachment for ChatGPT upload',async()=>{
     assert.equal(await audio.text(),'private-audio');
   }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
+
+
+test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-file-'));
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{},
+    fetchImpl:async(url)=>{
+      if(String(url).endsWith('.pdf')) return new Response(Buffer.from('%PDF-test'),{status:200,headers:{'content-type':'application/pdf'}});
+      return new Response(Buffer.from('csv-data'),{status:200,headers:{'content-type':'text/csv'}});
+    },
+  }).start();
+  try{
+    await bridge.enqueue({
+      childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"childId":"kid1","studentMessage":"check these"}}\n</FAMILY_TUTOR_CONTEXT>',
+      attachments:[
+        {url:'https://cdn.discord.test/homework.pdf',name:'homework.pdf',mimeType:'application/pdf',size:9},
+        {url:'https://cdn.discord.test/scores.csv',name:'scores.csv',size:8},
+      ],
+      origin:{channelId:'sammy',messageId:'file-1'},
+    });
+    const turn=bridge.next('kid1');
+    assert.deepEqual(turn.attachments.map(x=>[x.name,x.mimeType]),[[
+      '1-homework.pdf','application/pdf'
+    ],[
+      '2-scores.csv','text/csv'
+    ]]);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
