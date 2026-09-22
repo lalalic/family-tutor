@@ -42,12 +42,33 @@ test('browser child ingress forwards image-only turns with typed context', async
   assert.match(calls[0].text, /"childId":"maggie"/);
 });
 
-test('browser child ingress forwards audio-only turns instead of dropping them', async () => {
+test('browser child ingress transcribes audio into context and does not attach the audio file', async () => {
   const calls = [];
   const audio = { id: 'aud1', url: 'https://cdn.example/voice.ogg', name: 'voice-message.ogg', contentType: 'audio/ogg', size: 4321 };
   const message = { content: '', attachments: new Map([['aud1', audio]]), channelId: 'maggie-channel', id: 'audio-message', channel: { isThread: () => false } };
-  await handleBrowserChildMessage(message, { id: 'maggie' }, { enqueue: async (value) => calls.push(value) });
+  const transcribed=[];
+  await handleBrowserChildMessage(message, { id: 'maggie' }, { enqueue: async (value) => calls.push(value) }, {
+    transcribe: async (attachments) => { transcribed.push(attachments); return 'Please help me with question seven.'; },
+  });
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].attachments, [{ url: audio.url, name: audio.name, mimeType: audio.contentType, size: audio.size }]);
-  assert.match(calls[0].text, /"studentMessage":""/);
+  assert.equal(transcribed.length, 1);
+  assert.equal(transcribed[0][0].name, audio.name);
+  assert.deepEqual(calls[0].attachments, []);
+  const match = calls[0].text.match(new RegExp('<FAMILY_TUTOR_CONTEXT>\\n([\\s\\S]+)\\n<\\/FAMILY_TUTOR_CONTEXT>'));
+  assert.ok(match);
+  assert.deepEqual(JSON.parse(match[1]), {
+    type: 'kid',
+    data: { childId: 'maggie', studentMessage: '', voiceTranscript: 'Please help me with question seven.' },
+  });
+});
+
+test('browser child ingress transcribes audio while preserving non-audio files', async () => {
+  const calls=[];
+  const audio={id:'aud1',url:'https://cdn.example/voice.ogg',name:'voice.ogg',contentType:'audio/ogg',size:10};
+  const pdf={id:'pdf1',url:'https://cdn.example/homework.pdf',name:'homework.pdf',contentType:'application/pdf',size:20};
+  const message={content:'Look at this too',attachments:new Map([['aud1',audio],['pdf1',pdf]]),channelId:'sammy-channel',id:'mixed-message',channel:{isThread:()=>false}};
+  await handleBrowserChildMessage(message,{id:'sammy'},{enqueue:async value=>calls.push(value)},{transcribe:async()=> 'My voice note.'});
+  assert.deepEqual(calls[0].attachments,[{url:pdf.url,name:pdf.name,mimeType:pdf.contentType,size:pdf.size}]);
+  assert.match(calls[0].text,/"voiceTranscript":"My voice note\."/);
+  assert.match(calls[0].text,/"studentMessage":"Look at this too"/);
 });

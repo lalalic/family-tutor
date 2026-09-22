@@ -1,6 +1,7 @@
 import { buildKidContext } from './runtime-context.mjs';
+import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
 
-export async function handleBrowserChildMessage(message, child, browserBridge) {
+export async function handleBrowserChildMessage(message, child, browserBridge, { transcribe = transcribeAudioAttachments } = {}) {
   const incoming = message.content.trim();
   const attachments = [...message.attachments.values()].slice(0, 4).map((attachment) => ({
     url: attachment.url,
@@ -9,11 +10,14 @@ export async function handleBrowserChildMessage(message, child, browserBridge) {
     size: Number(attachment.size || 0),
   }));
   if (!incoming && !attachments.length) return;
+  const audioAttachments = attachments.filter(isAudioAttachment);
+  const passthroughAttachments = attachments.filter((attachment) => !isAudioAttachment(attachment));
+  const voiceTranscript = audioAttachments.length ? await transcribe(audioAttachments) : null;
 
   await browserBridge.enqueue({
     childId: child.id,
-    text: buildKidContext({ childId: child.id, text: incoming }),
-    attachments,
+    text: buildKidContext({ childId: child.id, text: incoming, voiceTranscript }),
+    attachments: passthroughAttachments,
     origin: {
       channelId: message.channelId,
       messageId: message.id,

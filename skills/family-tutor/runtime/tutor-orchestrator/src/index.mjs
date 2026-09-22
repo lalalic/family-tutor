@@ -129,8 +129,8 @@ async function handleChildMessage(message,child){
     try{
       voiceTranscript=await transcribeAudioAttachments(audioAttachments);
     }catch(error){
-      console.error(`[family-tutor] ${child.id} local ASR failed`,error);
-      return message.reply('I received your voice message, but I could not transcribe it locally. Please try again or send it as text.');
+      console.error(`[family-tutor] ${child.id} ASR failed`,error);
+      return message.reply('I received your voice message, but I could not transcribe it. Please try again or send it as text.');
     }
   }
   const voiceBlock=voiceTranscript?`[VOICE MESSAGE TRANSCRIPT — preserve the student's spoken meaning; do not judge grammar or writing quality from this transcript]\n${voiceTranscript}\n[/VOICE MESSAGE TRANSCRIPT]`:'';

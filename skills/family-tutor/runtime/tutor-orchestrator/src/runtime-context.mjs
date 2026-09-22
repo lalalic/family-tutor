@@ -8,8 +8,12 @@ export function runtimeContext(type, data) {
   return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({ type, data })}\n</FAMILY_TUTOR_CONTEXT>`;
 }
 
-export function buildKidContext({ childId, text }) {
-  return runtimeContext('kid', { childId, studentMessage: String(text || '') });
+export function buildKidContext({ childId, text, voiceTranscript = null }) {
+  return runtimeContext('kid', {
+    childId,
+    studentMessage: String(text || ''),
+    ...(voiceTranscript ? { voiceTranscript: String(voiceTranscript) } : {}),
+  });
 }
 
 export function buildParentContext({ childId, requestType, message }) {

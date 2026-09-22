@@ -132,3 +132,8 @@ Security properties:
 - extension access and refresh tokens carry the Family Installation scope and are rejected by a different installation;
 - reinstalling the same Discord server reuses the Family Installation, while attempting to bind a different server to the same per-family runtime is rejected;
 - ChatGPT MCP pairing remains a separate step and is intentionally not changed by this flow.
+
+
+## Voice messages
+
+Discord voice/audio attachments are not forwarded to ChatGPT as files. The runtime first transcribes them with the configured online ASR provider (Cloudflare Workers AI by default), removes the audio attachment, and sends only `voiceTranscript` inside the typed kid context. Other attachment types continue to pass through unchanged. Local MLX Whisper remains a fallback for development/offline recovery.
