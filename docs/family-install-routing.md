@@ -136,4 +136,4 @@ Security properties:
 
 ## Voice messages
 
-Discord voice/audio attachments are not forwarded to ChatGPT as files. The runtime first transcribes them with the configured online ASR provider (Cloudflare Workers AI by default), removes the audio attachment, and sends only `voiceTranscript` inside the typed kid context. Other attachment types continue to pass through unchanged. Local MLX Whisper remains a fallback for development/offline recovery.
+Discord voice/audio attachments are not forwarded to ChatGPT as files. The runtime first transcribes them with the hosted `family-tutor-asr` Cloudflare Worker using Workers AI `whisper-large-v3-turbo`, removes the audio attachment, and sends only `voiceTranscript` inside the typed kid context. Requests are signed with a local P-256 private key; the Worker stores only the corresponding public key. Other attachment types continue to pass through unchanged. Local MLX Whisper remains an optional development/offline fallback.
