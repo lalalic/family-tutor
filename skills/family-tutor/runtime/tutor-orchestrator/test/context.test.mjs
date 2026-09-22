@@ -23,13 +23,11 @@ test('parent status and reminder commands stay parent-routed by their logical ta
 });
 
 
-test('natural parent reminders route to the child and keep only confirmation in parents',()=>{
+test('parent mentions are routed deterministically without semantic intent classification',()=>{
   const parsed=parseParentMessage('remind <#1234567890> to do homework',[{id:'sammy',name:'Sammy'}]);
-  assert.deepEqual(parsed,{command:'!remind',channelMentionId:'1234567890',value:'do homework'});
-  const polite=parseParentMessage('please remind <#1234567890> to review quadratic equations',[{id:'sammy',name:'Sammy'}]);
-  assert.deepEqual(polite,{command:'!remind',channelMentionId:'1234567890',value:'review quadratic equations'});
-  const normalized=renderParentNaturalText('remind <#1234567890> to do homework','1234567890','sammy');
-  assert.equal(normalized,'remind @sammy to do homework');
+  assert.deepEqual(parsed,{command:'parent-query',channelMentionId:'1234567890',value:'remind <#1234567890> to do homework'});
+  const normalized=renderParentNaturalText('remind <#1234567890> to do homework','1234567890','sammy','ch_sammy_12345678901234567');
+  assert.equal(normalized,'remind @sammy(channelId=ch_sammy_12345678901234567) to do homework');
   const prompt=envelope(buildParentContextPrompt({text:normalized}));
-  assert.deepEqual(prompt,{type:'parent',data:{senderName:'Parents',message:'remind @sammy to do homework'}});
+  assert.deepEqual(prompt,{type:'parent',data:{senderName:'Parents',message:'remind @sammy(channelId=ch_sammy_12345678901234567) to do homework'}});
 });

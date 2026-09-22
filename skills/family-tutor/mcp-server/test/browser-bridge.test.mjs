@@ -480,3 +480,25 @@ test('passes arbitrary Discord files through to ChatGPT unchanged',async()=>{
     ]]);
   }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
+
+
+test('reply_to_discord can send by correlation or embedded channel handle',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-channel-send-'));
+  const sent=[];
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{},sendToDiscord:async value=>sent.push(value)}).start();
+  try{
+    const token=bridge.token;
+    const channelId=bridge.channelHandle('discord-channel-123');
+    assert.match(channelId,/^ch_[A-Za-z0-9_-]{24}$/);
+    const list=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:1,method:'tools/list'});
+    const schema=(await list.json()).result.tools.find(tool=>tool.name==='reply_to_discord').inputSchema;
+    assert.ok(schema.properties.correlationId);
+    assert.ok(schema.properties.channelId);
+    assert.equal(schema.oneOf.length,2);
+    const send=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,text:'homework time'}}});
+    assert.equal((await send.json()).result.isError,undefined);
+    assert.deepEqual(sent,[{channelId:'discord-channel-123',text:'homework time'}]);
+    const both=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'reply_to_discord',arguments:{channelId,correlationId:'corr',text:'bad'}}});
+    assert.equal((await both.json()).result.isError,true);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});

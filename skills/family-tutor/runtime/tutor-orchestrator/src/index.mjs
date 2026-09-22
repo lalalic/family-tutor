@@ -177,22 +177,7 @@ function learnerMemory(child){ try{return fs.readFileSync(agentsFile(child),'utf
 function childChannelFor(message,child){
   return message.guild?.channels?.cache?.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id)||null;
 }
-async function runParentTurn(message,child,prompt,{reminder=false,attachments=[]}={}){
-  if(reminder){
-    const target=childChannelFor(message,child);
-    if(!target?.isTextBased()) throw new Error(`Configured child channel #${child.id} is unavailable.`);
-    if(browserBridge){
-      await browserBridge.turn({childId:child.id,prompt,attachments,origin:{channelId:target.id,messageId:message.id,threadId:null},reply:async text=>sendChunks(target,text)});
-      return sendChunks(message.channel,`✅ Reminder sent to **${child.name}**.`);
-    }
-    const result=await backend.turn({prompt,childId:child.id,attachments});
-    const parsed=parseTutorText(result.text);
-    await applyTutorSideEffects(child,parsed);
-    await sendChunks(target,parsed.childText||result.text);
-    await sendAssistantOutputs(target,result.outputs);
-    await sendChunks(message.channel,`✅ Reminder sent to **${child.name}**.`);
-    return;
-  }
+async function runParentTurn(message,child,prompt,{attachments=[]}={}){
   if(browserBridge){
     await browserBridge.turn({childId:child.id,prompt,attachments,origin:{channelId:message.channelId,messageId:message.id,threadId:null}});
     return;
@@ -214,11 +199,12 @@ async function handleParentControl(message){
   const nonAudioAttachments=attachments.filter(a=>!isAudioAttachment(a));
   let voiceTranscript=null;
   if(audioAttachments.length) voiceTranscript=await transcribeAudioAttachments(audioAttachments);
-  const normalizedMessage=renderParentNaturalText(message.content,command.channelMentionId,child.id);
+  const targetChannelId=browserBridge?.channelHandle(command.channelMentionId)||'';
+  const normalizedMessage=renderParentNaturalText(message.content,command.channelMentionId,child.id,targetChannelId);
   const contextMessage=[normalizedMessage,voiceTranscript].filter(Boolean).join('\n\n');
   if(!contextMessage && !nonAudioAttachments.length) return message.reply('Please include the question or guidance.');
   const prompt=buildParentContextPrompt({text:contextMessage});
-  return runParentTurn(message,child,prompt,{reminder:command.command==='!remind',attachments:nonAudioAttachments});
+  return runParentTurn(message,child,prompt,{attachments:nonAudioAttachments});
 }
 
 async function statusForChild(child){
@@ -293,6 +279,11 @@ if(config.browserBridge?.enabled){
       if(!channel?.isTextBased()) throw new Error('originating Discord channel is unavailable');
       const original=await channel.messages.fetch(origin.messageId);
       await replyToMessage(original,text);
+    },
+    sendToDiscord:async({channelId,text})=>{
+      const channel=await client.channels.fetch(channelId);
+      if(!channel?.isTextBased()) throw new Error('Discord channel is unavailable');
+      await sendChunks(channel,text);
     },
     addChild:addKid,
     deleteChild:deleteKid,
