@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { LEARNER_PROFILE_TEMPLATE, renderLearnerProfileTemplatePage, renderPublicSetupPage, renderSetupPage } from './setup-guide.mjs';
+import { LEARNER_PROFILE_TEMPLATE, renderPublicSetupPage, renderSetupPage } from './setup-guide.mjs';
 
 const MAX_ATTACHMENT_BYTES=25*1024*1024;
 const MAX_ATTACHMENTS=4;

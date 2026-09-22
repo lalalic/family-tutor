@@ -18,17 +18,6 @@ This ChatGPT Project belongs to exactly one learner. Never mix this learner's hi
 - Current learning goals: <LEARNING_GOALS>
 `;
 
-export function renderLearnerProfileTemplatePage({ publicOrigin = 'https://family-tutor.qili2.com' } = {}) {
-  return `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Learner profile template · Family Tutor</title>
-<style>
-body{margin:0;font:15px/1.5 system-ui,-apple-system,sans-serif;color:#17211f;background:#fff}main{max-width:860px;margin:42px auto;padding:0 22px 60px}h1{font-size:32px;margin-bottom:8px}.muted{color:#68726f}pre{white-space:pre-wrap;background:#f6f8f7;border:1px solid #e5e9e7;border-radius:14px;padding:18px;overflow:auto}code{font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}a{color:#0b6067}
-</style>
-<main><p class="muted">Family Tutor · ChatGPT Project Instructions</p><h1>Learner profile template</h1><p>Copy the full template below into the kid's ChatGPT <strong>Project Instructions</strong>, then replace every placeholder with that learner's information. Tune the wording as needed, but keep the Neo bootstrap instruction and one-learner isolation rule.</p><pre><code>${esc(LEARNER_PROFILE_TEMPLATE)}</code></pre><p><a href="${esc(publicOrigin)}/setup?step=projects">Return to setup</a></p></main>`;
-}
-
 function esc(value='') {
   return String(value)
     .replaceAll('&','&amp;')
