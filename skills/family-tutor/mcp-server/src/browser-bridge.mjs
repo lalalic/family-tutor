@@ -220,7 +220,14 @@ export class BrowserBridge {
       return payload.iss===this.publicOrigin&&payload.aud===resource&&payload.client_id===clientId&&String(payload.scope||'').split(/\s+/).includes(scope)&&Number(payload.exp)>Math.floor(Date.now()/1000);
     }catch{return false;}
   }
-  #verifyAccessToken(token){return this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'});}
+  #verifyAccessToken(token){
+    if(!this.#verifyScopedAccessToken(token,{resource:this.#oauthResource(),clientId:this.oauthClientId,scope:'tutor'})) return false;
+    try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return !payload.family_id||(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
+  }
+  #signManualChatGptToken(expiresIn=30*24*60*60){
+    if(!this.#familyId()) throw new Error('Family Tutor installation is not linked.');
+    return this.#signAccessToken({scope:'tutor',resource:this.#oauthResource(),clientId:this.oauthClientId,familyId:this.#familyId(),expiresIn});
+  }
   #verifyExtensionAccessToken(token){
     if(!this.#verifyScopedAccessToken(token,{resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,scope:'extension'})) return false;
     try{const payload=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString('utf8'));return Boolean(this.#familyId()&&payload.family_id===this.#familyId());}catch{return false;}
@@ -245,6 +252,10 @@ export class BrowserBridge {
   #verifyExtensionRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.extensionOAuthClientId,scope:'extension_refresh',resource:this.#extensionResource(),familyId:this.#familyId(),allowMissingResource:true});}
   #signChatGptRefreshToken(expiresIn=180*24*60*60){return this.#signRefreshToken({clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource(),expiresIn});}
   #verifyChatGptRefreshToken(token){return this.#verifyRefreshToken(token,{clientId:this.oauthClientId,scope:'tutor_refresh',resource:this.#oauthResource()});}
+  #extensionAuthorized(req){
+    const match=String(req.headers.authorization||'').match(/^Bearer\s+(\S+)$/i);
+    return Boolean(match&&this.#verifyExtensionAccessToken(match[1]));
+  }
   #mcpAuthorized(req){
     const value=String(req.headers.authorization||'');
     if(value===`Bearer ${this.token}`) return true;
@@ -671,6 +682,10 @@ export class BrowserBridge {
       const body=await readJson(req); const record=this.#consumeSetupClaim(body.claim);
       if(!record) return json(res,400,{error:'invalid_or_expired_claim'});
       return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:record.familyId}),refresh_token:this.#signExtensionRefreshToken(record.familyId),token_type:'Bearer',expires_in:3600,scope:'extension',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
+    }
+    if(req.method==='POST'&&url.pathname==='/v1/chatgpt-auth-token'){
+      if(!this.#extensionAuthorized(req)) return json(res,401,{error:'unauthorized'});
+      return json(res,200,{auth_token:this.#signManualChatGptToken(),token_type:'Bearer',expires_in:30*24*60*60});
     }
     if(req.method==='POST'&&url.pathname==='/mcp/reply'){
       if(!this.#authorized(req,url)) return json(res,401,{error:'unauthorized'});

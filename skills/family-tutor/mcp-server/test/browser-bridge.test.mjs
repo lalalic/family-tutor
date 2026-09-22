@@ -238,6 +238,21 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.ok(accessPayload.family_id);
     assert.equal(JSON.stringify(session).includes('guild-A'),false);
 
+    const manualUnauthorized=await fetch(`${bridge.endpoint()}/v1/chatgpt-auth-token`,{method:'POST'});
+    assert.equal(manualUnauthorized.status,401);
+    const manualResponse=await fetch(`${bridge.endpoint()}/v1/chatgpt-auth-token`,{method:'POST',headers:{authorization:`Bearer ${session.access_token}`}});
+    assert.equal(manualResponse.status,200);
+    const manual=await manualResponse.json();
+    assert.ok(manual.auth_token.startsWith('ft1.'));
+    assert.equal(manual.expires_in,30*24*60*60);
+    const manualPayload=JSON.parse(Buffer.from(manual.auth_token.split('.')[1],'base64url').toString('utf8'));
+    assert.equal(manualPayload.family_id,accessPayload.family_id);
+    assert.equal(manualPayload.scope,'tutor');
+    assert.equal(manualPayload.aud,'https://family-tutor.qili2.com/mcp');
+    const manualMcp=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:99,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'manual-token-test',version:'1'}}})});
+    assert.equal(manualMcp.status,200);
+    assert.equal((await manualMcp.json()).result.serverInfo.name,'family-tutor-browser-bridge');
+
     const replay=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
     assert.equal(replay.status,400);
 

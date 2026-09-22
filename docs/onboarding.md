@@ -11,7 +11,10 @@ provider IDs, bearer tokens, and child messages inside trusted adapters.
 1. Confirm prerequisites: supported Chrome, ChatGPT Plus with Developer Mode,
    the Family Tutor extension, and a Discord server where the owner can
    authorize the shared bot.
-2. Connect ChatGPT Developer Mode to the hosted Family Tutor MCP endpoint.
+2. Connect ChatGPT to the hosted Family Tutor MCP endpoint. If the install UI
+   offers OAuth, use **Connect/Authorize**. If it asks for an auth token, open
+   the Family Tutor extension, choose **Connect ChatGPT**, and paste the copied
+   dedicated ChatGPT token. Never copy the extension session or refresh token.
    Setup remains incomplete until both ChatGPT and MCP are reachable.
 3. Invite the shared Family Tutor Discord bot using the guided authorization
    link. Never paste a bot token into onboarding.

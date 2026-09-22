@@ -75,8 +75,9 @@ The central invariant is:
 > authenticate identity, authorize scope, resolve a logical or trusted
 > correlation boundary, then touch a provider id.
 
-Model-facing MCP input cannot supply `familyId`, `channelId`, `providerId`, or
-other tenant selectors. Product status and exports redact provider ids and token
+Model-facing MCP input cannot supply `familyId`, raw Discord/provider channel IDs, `providerId`, or
+other tenant selectors. Opaque Family Tutor channel handles may appear only in
+explicit `@name(channelId=...)` target mentions. Product status and exports redact provider ids and token
 hashes. The extension relay accepts only authenticated family sessions and binds
 children that already belong to that family.
 

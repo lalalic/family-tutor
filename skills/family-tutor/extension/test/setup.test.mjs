@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.3');
+  assert.equal(manifest.version,'2.6.4');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -29,4 +29,17 @@ test('rotated hosted refresh token is persisted and auth retry is scheduled',()=
   const source=fs.readFileSync(path.join(root,'background.js'),'utf8');
   assert.match(source,/bridgeRefreshToken: refreshed\.refreshToken/);
   assert.match(source,/scheduleReconnect\(\);[\s\S]*return;/);
+});
+
+test('popup can copy a dedicated ChatGPT auth token without exposing extension credentials',()=>{
+  const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
+  assert.ok(manifest.permissions.includes('clipboardWrite'));
+  const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
+  const popup=fs.readFileSync(path.join(root,'popup.js'),'utf8');
+  const html=fs.readFileSync(path.join(root,'popup.html'),'utf8');
+  assert.match(background,/\/v1\/chatgpt-auth-token/);
+  assert.match(background,/chatgpt\.authToken/);
+  assert.match(popup,/navigator\.clipboard\.writeText\(result\.authToken\)/);
+  assert.match(html,/Connect ChatGPT/);
+  assert.doesNotMatch(popup,/bridgeToken|bridgeRefreshToken/);
 });
