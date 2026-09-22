@@ -180,7 +180,7 @@ test('hosted server serves a generic learner profile template and bootstrap with
     assert.match(template.template, /https:\/\/family-tutor\.qili2\.com\/bootstrap\/latest\.md/);
     assert.match(template.template, /<NAME>/);
     assert.match(template.template, /exactly one learner/);
-    assert.doesNotMatch(template.template, /reply_to_discord|send_tutor_message|create_study_plan/);
+    assert.doesNotMatch(template.template, /reply_to_discord|send_tutor_message|create_study_plan|FAMILY_TUTOR_CONTEXT/);
     assert.equal(JSON.stringify(template).includes('family-a'), false);
 
     const bootstrap = await fetch(`${base}/bootstrap/latest.md`);
