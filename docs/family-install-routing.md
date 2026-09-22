@@ -21,7 +21,7 @@ sequenceDiagram
     participant Ext as Browser Extension
     participant ChatGPT
 
-    Parent->>Site: Add to Discord
+    Parent->>Site: Add Family Tutor
     Site->>Discord: OAuth bot install
     Parent->>Discord: Choose family server and authorize
     Discord->>Server: OAuth callback with guildId

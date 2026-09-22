@@ -132,6 +132,27 @@ async function validExtensionAccessToken() {
   return current.bridgeToken;
 }
 
+
+async function fetchSetupStatus() {
+  const accessToken = await validExtensionAccessToken();
+  const response = await fetch(`${OAUTH_ORIGIN}/v1/setup/status`, { headers: { authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || result.error || 'Could not check Discord setup.');
+  return result;
+}
+
+async function finishFamilySetup() {
+  const accessToken = await validExtensionAccessToken();
+  const current = await settings();
+  const response = await fetch(`${OAUTH_ORIGIN}/v1/setup/finish`, {
+    method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ bindings: canonicalBindings(current.bindings) }), cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || result.error || 'Family Tutor setup is not ready to finish.');
+  return result;
+}
+
 async function fetchChatGptAuthToken() {
   const accessToken = await validExtensionAccessToken();
   const response = await fetch(`${OAUTH_ORIGIN}/v1/chatgpt-auth-token`, {
@@ -695,6 +716,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+
+  if (message?.type === 'setup.status') {
+    fetchSetupStatus().then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === 'setup.finish') {
+    finishFamilySetup().then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: safeErrorMessage(error) }));
+    return true;
+  }
 
   if (message?.type === 'setup.openDeveloperMode') {
     chrome.tabs.create({ url: CHATGPT_DEVELOPER_MODE_URL, active: true })

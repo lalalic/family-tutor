@@ -19,6 +19,42 @@ if(!discordToken) throw new Error('DISCORD_BOT_TOKEN is required');
 
 const instanceDir=path.resolve(path.dirname(config.configPath),'..');
 const backend=new CodexBackend(config.codex,{instanceDir});
+
+const setupGreetingFile=path.join(instanceDir,'.setup-greetings.json');
+function loadGreetingState(){ try{return JSON.parse(fs.readFileSync(setupGreetingFile,'utf8'));}catch{return {parent:false,children:{}};} }
+function saveGreetingState(state){ const tmp=`${setupGreetingFile}.tmp`; fs.writeFileSync(tmp,`${JSON.stringify(state,null,2)}\n`,{mode:0o600}); fs.renameSync(tmp,setupGreetingFile); }
+async function discordSetupStatus(){
+  let parent=null;
+  try{ parent=await client.channels.fetch(config.discord.parentChannelId); }catch{}
+  const guild=parent?.guild||null;
+  const children=config.children.map(child=>{
+    const channel=guild?.channels?.cache?.find(candidate=>candidate.type===ChannelType.GuildText&&candidate.name===child.id)||null;
+    return {id:child.id,name:child.name,channelReady:Boolean(channel)};
+  });
+  const parentReady=Boolean(parent?.isTextBased?.());
+  return {discordReady:parentReady&&children.length>0&&children.every(child=>child.channelReady),parentReady,children};
+}
+async function sendSetupGreetings(){
+  const status=await discordSetupStatus();
+  if(!status.discordReady) throw new Error('Discord channels are not ready yet.');
+  const state=loadGreetingState();
+  const parent=await client.channels.fetch(config.discord.parentChannelId);
+  const guild=parent.guild;
+  for(const child of config.children){
+    if(state.children?.[child.id]) continue;
+    const channel=guild.channels.cache.find(candidate=>candidate.type===ChannelType.GuildText&&candidate.name===child.id);
+    if(!channel?.isTextBased()) throw new Error(`Discord channel for ${child.name} is not ready yet.`);
+    await channel.send(`Hi ${child.name}! 👋 Family Tutor is ready. Ask homework questions here, or send a photo, file, or voice message. I’ll reply in this channel.`);
+    state.children={...(state.children||{}),[child.id]:true};
+    saveGreetingState(state);
+  }
+  if(!state.parent){
+    const example=config.children[0]?.id||'sammy';
+    await parent.send(`Family Tutor is ready. 👋 Use this channel to check learning status or send reminders. Try \`how is #${example} doing?\` or \`remind #${example} to do homework\`.`);
+    state.parent=true; saveGreetingState(state);
+  }
+  return {alreadyComplete:Boolean(state.parent&&config.children.every(child=>state.children?.[child.id])),greetingsSent:true};
+}
 function agentsFile(child){ return path.resolve(path.dirname(config.configPath),'..',child.id,'AGENTS.md'); }
 function ensureAgents(child){ const file=agentsFile(child); if(fs.existsSync(file)) return; fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,`# ${child.name} Agent Context\n\n`,{mode:0o600}); }
 function childIdFromName(name){
@@ -287,6 +323,8 @@ if(config.browserBridge?.enabled){
     },
     addChild:addKid,
     deleteChild:deleteKid,
+    getSetupStatus:discordSetupStatus,
+    finishSetup:sendSetupGreetings,
   });
   await browserBridge.start();
   console.log(`[family-tutor-orchestrator] ChatGPT browser bridge listening on ${browserBridge.endpoint()}`);

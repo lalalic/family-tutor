@@ -4,12 +4,13 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
+import { renderSetupPage } from './setup-guide.mjs';
 
 const MAX_ATTACHMENT_BYTES=25*1024*1024;
 const MAX_ATTACHMENTS=4;
 const DEFAULT_TTL_MS=15*60*1000;
 const COMPLETED_CORRELATION_TTL_MS=5*60*1000;
-const FAMILY_TUTOR_EXTENSION_ORIGIN=process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'chrome-extension://cbhalklofapefdghfgdglmdfkeohdegm';
+const DEFAULT_EXTENSION_ID='cbhalklofapefdghfgdglmdfkeohdegm';
 const SETUP_CLAIM_TTL_MS=30*60*1000;
 
 function safeName(name='attachment'){
@@ -53,7 +54,7 @@ function contextWithCorrelation(prompt,correlationId){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,getSetupStatus=null,finishSetup=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
@@ -68,6 +69,8 @@ export class BrowserBridge {
     this.providerChannels=new Map();
     this.addChild=addChild;
     this.deleteChild=deleteChild;
+    this.getSetupStatus=getSetupStatus;
+    this.finishSetup=finishSetup;
     this.ttlMs=ttlMs;
     this.turnTimeoutMs=turnTimeoutMs;
     this.configuredToken=token;
@@ -87,7 +90,11 @@ export class BrowserBridge {
     this.publicOrigin=String(process.env.FAMILY_TUTOR_PUBLIC_ORIGIN||'https://family-tutor.qili2.com').replace(/\/$/,'');
     this.oauthClientId=process.env.FAMILY_TUTOR_OAUTH_CLIENT_ID||'family-tutor-chatgpt';
     this.extensionOAuthClientId='family-tutor-extension';
-    this.extensionRedirectHost='cbhalklofapefdghfgdglmdfkeohdegm.chromiumapp.org';
+    const configuredExtensionIds=String(process.env.FAMILY_TUTOR_EXTENSION_IDS||DEFAULT_EXTENSION_ID).split(',').map(value=>value.trim()).filter(Boolean);
+    const configuredOrigin=String(process.env.FAMILY_TUTOR_EXTENSION_ORIGIN||'').trim();
+    this.extensionOrigins=new Set(configuredExtensionIds.map(id=>`chrome-extension://${id}`));
+    if(configuredOrigin) this.extensionOrigins.add(configuredOrigin);
+    this.extensionRedirectHosts=new Set(configuredExtensionIds.map(id=>`${id}.chromiumapp.org`));
     this.oauthClientSecretFile=path.join(this.root,'oauth-client-secret');
     this.oauthClientSecret=null;
     this.oauthCodes=new Map();
@@ -181,14 +188,19 @@ export class BrowserBridge {
     if(!this.#familyId()) throw new Error('Family Tutor installation is not linked.');
     const claim=crypto.randomBytes(32).toString('base64url');
     const digest=crypto.createHash('sha256').update(claim).digest('base64url');
-    this.setupClaims.set(digest,{familyId:this.#familyId(),expiresAt:Date.now()+SETUP_CLAIM_TTL_MS});
+    this.setupClaims.set(digest,{familyId:this.#familyId(),expiresAt:Date.now()+SETUP_CLAIM_TTL_MS,consumedAt:null});
     return claim;
   }
-  #consumeSetupClaim(claim){
+  #setupClaimRecord(claim){
     const digest=crypto.createHash('sha256').update(String(claim||'')).digest('base64url');
     const record=this.setupClaims.get(digest);
-    this.setupClaims.delete(digest);
     if(!record||record.expiresAt<Date.now()||record.familyId!==this.#familyId()) return null;
+    return record;
+  }
+  #consumeSetupClaim(claim){
+    const record=this.#setupClaimRecord(claim);
+    if(!record||record.consumedAt) return null;
+    record.consumedAt=Date.now();
     return record;
   }
 
@@ -202,7 +214,7 @@ export class BrowserBridge {
     try{
       const url=new URL(uri);
       if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');
-      if(clientId===this.extensionOAuthClientId) return url.protocol==='https:'&&url.hostname===this.extensionRedirectHost&&url.pathname.startsWith('/family-tutor');
+      if(clientId===this.extensionOAuthClientId) return url.protocol==='https:'&&this.extensionRedirectHosts.has(url.hostname)&&url.pathname.startsWith('/family-tutor');
       return false;
     }catch{return false;}
   }
@@ -455,6 +467,7 @@ export class BrowserBridge {
   }
 
   async cleanupExpired(now=Date.now()){
+    for(const [id,record] of this.setupClaims) if(record.expiresAt<=now) this.setupClaims.delete(id);
     for(const [id,completed] of this.completedCorrelations) if(completed.expiresAt<=now) this.completedCorrelations.delete(id);
     for(const [id,state] of this.correlations){
       if(state.expiresAt>now) continue;
@@ -491,8 +504,8 @@ export class BrowserBridge {
   #upgrade(req,socket,head){
     let url;
     try{ url=new URL(req.url,`http://${req.headers.host||'localhost'}`); }catch{ socket.destroy(); return; }
-    const extensionAuth=String(req.headers.origin||'')===FAMILY_TUTOR_EXTENSION_ORIGIN;
-    const tokenAuth=!process.env.FAMILY_TUTOR_EXTENSION_ORIGIN&&url.searchParams.get('token')===this.token;
+    const extensionAuth=this.extensionOrigins.has(String(req.headers.origin||''));
+    const tokenAuth=!String(req.headers.origin||'')&&url.searchParams.get('token')===this.token;
     if(url.pathname!=='/ws'||(!extensionAuth&&!tokenAuth)){ socket.destroy(); return; }
     this.wsServer.handleUpgrade(req,socket,head,client=>this.wsServer.emit('connection',client,req));
   }
@@ -679,15 +692,35 @@ export class BrowserBridge {
     }
     const setupPage=url.pathname.match(/^\/setup\/([^/]+)$/);
     if(req.method==='GET'&&setupPage){
-      const body=Buffer.from(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Family Tutor setup</title><style>body{font:16px system-ui;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}a{display:inline-block;background:#17211f;color:white;padding:10px 14px;border-radius:9px;text-decoration:none}code{background:#f3f3f3;padding:2px 5px;border-radius:4px}</style><body><main><h1>Finish Family Tutor setup</h1><p id="status">If Family Tutor is already installed, this browser will connect automatically. Otherwise install the extension, then reopen this setup page.</p><p><a href="/downloads/family-tutor-extension-2.6.6.zip">Download Family Tutor extension 2.6.6</a></p><ol><li>Unzip the downloaded file.</li><li>Open <code>chrome://extensions</code>, enable Developer mode, choose <strong>Load unpacked</strong>, and select the unzipped folder.</li><li>Reopen this setup page. Family Tutor will connect automatically.</li></ol></main></body>`);
-      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'"}); return res.end(body);
+      const claim=decodeURIComponent(setupPage[1]);
+      const record=this.#setupClaimRecord(claim);
+      if(!record) return json(res,410,{error:'invalid_or_expired_claim'});
+      const html=renderSetupPage({claim,publicOrigin:this.publicOrigin,extensionUrl:process.env.FAMILY_TUTOR_EXTENSION_INSTALL_URL||`${this.publicOrigin}/downloads/family-tutor-extension-2.6.7.zip`,children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name)),consumed:Boolean(record.consumedAt)});
+      const body=Buffer.from(html);
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-length':String(body.length),'cache-control':'no-store','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'"}); return res.end(body);
     }
     if(req.method==='POST'&&url.pathname==='/v1/setup/claim'){
       const origin=String(req.headers.origin||'');
-      if(origin&&origin!==FAMILY_TUTOR_EXTENSION_ORIGIN) return json(res,403,{error:'extension_required'});
+      if(origin&&!this.extensionOrigins.has(origin)) return json(res,403,{error:'extension_required'});
       const body=await readJson(req); const record=this.#consumeSetupClaim(body.claim);
       if(!record) return json(res,400,{error:'invalid_or_expired_claim'});
       return json(res,200,{access_token:this.#signAccessToken({scope:'extension',resource:this.#extensionResource(),clientId:this.extensionOAuthClientId,familyId:record.familyId}),refresh_token:this.#signExtensionRefreshToken(record.familyId),token_type:'Bearer',expires_in:3600,scope:'extension',children:[...this.children.values()].sort((a,b)=>a.name.localeCompare(b.name))});
+    }
+    if(req.method==='GET'&&url.pathname==='/v1/setup/status'){
+      if(!this.#extensionAuthorized(req)) return json(res,401,{error:'unauthorized'});
+      const status=this.getSetupStatus?await this.getSetupStatus():{discordReady:true,parentReady:true,children:[...this.children.values()].map(child=>({...child,channelReady:true}))};
+      return json(res,200,{...status,children:Array.isArray(status.children)?status.children:[]});
+    }
+    if(req.method==='POST'&&url.pathname==='/v1/setup/finish'){
+      if(!this.#extensionAuthorized(req)) return json(res,401,{error:'unauthorized'});
+      const body=await readJson(req);
+      const bound=Object.keys(body?.bindings||{}).filter(childId=>this.children.has(childId));
+      const expected=[...this.children.keys()].sort();
+      if(expected.some(childId=>!bound.includes(childId))) return json(res,409,{error:'projects_not_ready'});
+      const status=this.getSetupStatus?await this.getSetupStatus():{discordReady:true};
+      if(!status.discordReady) return json(res,409,{error:'discord_not_ready',status});
+      const result=this.finishSetup?await this.finishSetup({bindings:body.bindings||{}}):{ok:true,alreadyComplete:false};
+      return json(res,200,{ok:true,...result});
     }
     if(req.method==='POST'&&url.pathname==='/v1/chatgpt-auth-token'){
       if(!this.#extensionAuthorized(req)) return json(res,401,{error:'unauthorized'});
