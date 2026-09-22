@@ -699,6 +699,7 @@ export class BrowserBridge {
         res.writeHead(302,{location:`${this.publicOrigin}/setup/${encodeURIComponent(claim)}`,'cache-control':'no-store'}); return res.end();
       }catch{return redirectOnboarding();}
     }
+    if(req.method==='GET'&&url.pathname==='/setup/learner-profile-template'){ res.writeHead(404,{'cache-control':'no-store'}); return res.end(); }
     if(req.method==='GET'&&url.pathname==='/setup/learner-profile-template.md'){
       const body=Buffer.from(LEARNER_PROFILE_TEMPLATE);
       res.writeHead(200,{'content-type':'text/markdown; charset=utf-8','content-length':String(body.length),'cache-control':'no-store'}); return res.end(body);
