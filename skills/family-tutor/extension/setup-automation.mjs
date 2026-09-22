@@ -35,7 +35,7 @@ export async function setupKidProjects({
   let reused = 0;
 
   for (const child of missing) {
-    const request = { type: 'setup.project.ensure', name: child.name || child.id, instructions: profile.template };
+    const request = { type: 'setup.project.ensure', name: child.name || child.id };
     let result;
     try {
       result = await chrome.tabs.sendMessage(tab.id, request);
@@ -48,6 +48,16 @@ export async function setupKidProjects({
     if (result?.error || !result?.projectId) {
       throw new Error(result?.error || `Could not create the ChatGPT Project for ${child.name || child.id}.`);
     }
+
+    if (result.projectUrl) {
+      await chrome.tabs.update(tab.id, { url: result.projectUrl });
+      await waitForTabComplete(tab.id);
+    }
+    const instructionsResult = await chrome.tabs.sendMessage(tab.id, {
+      type: 'setup.project.instructions',
+      instructions: profile.template,
+    });
+    if (instructionsResult?.error) throw new Error(instructionsResult.error);
 
     bindings = bindChild(bindings, child.id, result.projectId);
     if (result.reused) reused += 1;

@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.7');
+  assert.equal(manifest.version,'2.6.8');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -83,12 +83,12 @@ test('best-effort setup automation creates only missing kid projects and preserv
   assert.match(background,/message\?\.type === 'setup\.projects'/);
   assert.match(automation,/children\.filter\(\(child\) => !current\.bindings\?\.\[child\.id\]\)/);
   assert.match(automation,/setup\.project\.ensure/);
-  assert.match(content,/async function ensureProject\(projectName, instructions = ''\)/);
+  assert.match(content,/async function ensureProject\(projectName\)/);
   assert.match(content,/Open ChatGPT and create a Project named/);
   assert.match(background,/v1\/learner-profile-template/);
   assert.match(automation,/getLearnerProfileTemplate/);
   assert.match(automation,/instructions: profile\.template/);
-  assert.match(content,/applyProjectInstructions/);
+  assert.match(content,/setup\.project\.instructions/);
 });
 
 

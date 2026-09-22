@@ -77,7 +77,7 @@ new or reused ChatGPT Project. The response contains only Neo's bootstrap link,
 one-learner isolation wording, and editable profile placeholders. Learner values
 are entered in ChatGPT Project Instructions; Family Tutor does not persist learner
 profiles on its servers. The bootstrap is served at
-`https://family-tutor.qili2.com/bootstrap/latest`, and current tool discovery
+`https://family-tutor.qili2.com/bootstrap/latest.md`, and current tool discovery
 determines available capabilities.
 
 

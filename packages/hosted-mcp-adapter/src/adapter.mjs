@@ -200,7 +200,7 @@ export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, m
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': data.length });
       return res.end(data);
     }
-    if (req.method === 'GET' && req.url === '/bootstrap/latest' && latestBootstrap) {
+    if (req.method === 'GET' && (req.url === '/bootstrap/latest' || req.url === '/bootstrap/latest.md') && latestBootstrap) {
       const data = Buffer.from(String(latestBootstrap));
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'content-length': data.length });
       return res.end(data);

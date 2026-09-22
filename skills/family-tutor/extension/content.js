@@ -121,17 +121,20 @@ function candidateByText(selector, patterns, root = document) {
 }
 
 async function applyProjectInstructions(instructions) {
+  const value = String(instructions || '').trim();
+  if (!value) throw new Error('Project Instructions template is empty.');
   const menu = candidateByText('button,[role="button"]', ['project settings', 'edit project', 'project instructions']);
   if (menu) menu.click();
   const panel = await waitFor(() => document.querySelector('[role="dialog"]') || document.querySelector('form'), 'ChatGPT Project settings', 10000);
-  const field = await waitFor(() => panel.querySelector('textarea, [contenteditable="true"], input[type="text"]'), 'ChatGPT Project Instructions field', 10000);
-  fillComposer(field, instructions);
+  const field = await waitFor(() => panel.querySelector('textarea, [contenteditable="true"]'), 'ChatGPT Project Instructions field', 10000);
+  fillComposer(field, value);
   const save = candidateByText('button,[role="button"]', ['save', 'done', 'update'], panel);
   if (!save) throw new Error('ChatGPT Project Instructions save button not found.');
   save.click();
+  return { applied: true };
 }
 
-async function ensureProject(projectName, instructions = '') {
+async function ensureProject(projectName) {
   const name = normalized(projectName);
   if (!name) throw new Error('kid name is required');
 
@@ -142,14 +145,7 @@ async function ensureProject(projectName, instructions = '') {
   if (existing) {
     const absolute = new URL(existing.getAttribute('href'), location.origin).href;
     const match = absolute.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
-    if (match) {
-      if (instructions) {
-        existing.click();
-        await waitFor(() => location.pathname.includes(`/g/${match[1]}`), 'ChatGPT Project page', 15000);
-        await applyProjectInstructions(instructions);
-      }
-      return { projectId: match[1], projectUrl: absolute, reused: true };
-    }
+    if (match) return { projectId: match[1], projectUrl: absolute, reused: true };
   }
 
   const newProject = candidateByText('button,a,[role="button"]', ['new project', 'create project']);
@@ -170,22 +166,12 @@ async function ensureProject(projectName, instructions = '') {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     const match = location.pathname.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
-    if (match) {
-      if (instructions) await applyProjectInstructions(instructions);
-      return { projectId: match[1], projectUrl: location.href, reused: false };
-    }
+    if (match) return { projectId: match[1], projectUrl: location.href, reused: false };
     const linked = [...document.querySelectorAll('a[href]')].find((anchor) => normalized(anchor.innerText || anchor.textContent).toLowerCase() === name.toLowerCase());
     if (linked) {
       const absolute = new URL(linked.getAttribute('href'), location.origin).href;
       const linkedMatch = absolute.match(/\/g\/(g-p-[A-Fa-f0-9]{32})(?:[-\/]|$)/);
-      if (linkedMatch) {
-        if (instructions) {
-          linked.click();
-          await waitFor(() => location.pathname.includes(`/g/${linkedMatch[1]}`), 'ChatGPT Project page', 15000);
-          await applyProjectInstructions(instructions);
-        }
-        return { projectId: linkedMatch[1], projectUrl: absolute, reused: false };
-      }
+      if (linkedMatch) return { projectId: linkedMatch[1], projectUrl: absolute, reused: false };
     }
     await sleep(250);
   }
@@ -226,7 +212,11 @@ async function submitTurn(message) {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type === 'setup.project.ensure') {
-    ensureProject(message.name, message.instructions).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+    ensureProject(message.name).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+  if (message?.type === 'setup.project.instructions') {
+    applyProjectInstructions(message.instructions).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type !== 'turn') return;
