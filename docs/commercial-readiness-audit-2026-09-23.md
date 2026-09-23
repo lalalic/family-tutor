@@ -46,7 +46,7 @@ The checks below were run from the repository checkout on 2026-09-23.
 - `npm run check` passes locally: package, product-composition, onboarding,
   operations, MCP-server, orchestrator, extension, and Cloudflare ASR tests
   all passed. `git diff --check` also passes.
-- The GitHub `checks` workflow has a successful run for the current `main`
+- The GitHub `check.yml` workflow has a successful run for the current `main`
   commit. The workflow runs tests only; it does not deploy the hosted service,
   configure secrets, verify a Pages/worker deployment, or run real Discord
   acceptance.
