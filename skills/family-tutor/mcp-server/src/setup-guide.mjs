@@ -1,4 +1,5 @@
 const MCP_URL = 'https://family-tutor.qili2.com/mcp';
+const PRODUCT_VERSION = '2.6.12';
 
 
 export const LEARNER_PROFILE_TEMPLATE = `# Neo learner profile
@@ -211,6 +212,15 @@ function renderSteps({ plan, selected }) {
   }).join('');
 }
 
+function feedbackUrl({ publicOrigin, setupStep }) {
+  const params = new URLSearchParams({
+    page: 'setup',
+    setupStep,
+    productVersion: PRODUCT_VERSION,
+  });
+  return `${publicOrigin}/feedback.html?${params}`;
+}
+
 export function codexSetupPrompt({ setupUrl, extensionUrl, children = [] } = {}) {
   const names = children.map((child) => child.name || child.id);
   return `Open ${setupUrl} in the user's browser and treat that page as the single authoritative Family Tutor setup guide.
@@ -273,6 +283,7 @@ export function renderPublicSetupPage({ publicOrigin, error = '', step = '', ext
   <p><a class="button" href="${esc(publicOrigin)}/discord/install">Add Family Tutor</a></p>
   ${errorText}
   <div class="steps-nav">${nav}</div>
+  <p class="muted">Something went wrong? <a href="${esc(feedbackUrl({ publicOrigin, setupStep: selected }))}">Send setup feedback</a> with an optional screenshot.</p>
   <section class="manual">
     <ol>${steps}</ol>
     <h2>Exceptions and recovery</h2>
@@ -304,6 +315,7 @@ export function renderSetupPage({ claim, publicOrigin, extensionUrl = `${publicO
   <h1>Set up Family Tutor</h1>
   <p><a class="button" href="${esc(publicOrigin)}/discord/install">Add Family Tutor</a></p>
   <div class="steps-nav">${nav}</div>
+  <p class="muted">Something went wrong? <a href="${esc(feedbackUrl({ publicOrigin, setupStep: selected }))}">Send setup feedback</a> with an optional screenshot.</p>
 
   <section class="summary">
     <strong>Setup session</strong>

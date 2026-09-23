@@ -17,10 +17,10 @@
     <p class="eyebrow">Setup support</p>
     <h1>Tell us what went wrong.</h1>
     <p class="lede">Use this form for a setup problem or product suggestion. Your report is saved for the Family Tutor team first; it does not automatically create a code change.</p>
-    <form action="/v1/feedback" method="post" enctype="multipart/form-data" style="display:grid;gap:18px;margin-top:32px">
+    <form id="feedback-form" action="/v1/feedback" method="post" enctype="multipart/form-data" style="display:grid;gap:18px;margin-top:32px">
       <label for="message"><strong>What happened?</strong><br><textarea id="message" name="message" required maxlength="12000" rows="8" style="width:100%;margin-top:8px;padding:12px" placeholder="For example: I reached the extension step, but the setup page did not continue."></textarea></label>
-      <label for="screenshot"><strong>Screenshot (optional)</strong><br><input id="screenshot" name="screenshot" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="margin-top:8px"></label>
-      <input type="hidden" name="page" value="public-feedback">
+      <label for="screenshot"><strong>Screenshot (optional)</strong><br><input id="screenshot" name="screenshot" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="margin-top:8px" aria-describedby="screenshot-help"><span id="screenshot-help" style="display:block;font-size:14px;margin-top:6px;color:#5f665f">PNG, JPEG, WebP, or GIF up to 5 MB.</span></label>
+      <input id="feedback-page" type="hidden" name="page" value="public-feedback">
       <input type="hidden" name="setupStep" value="">
       <input type="hidden" name="productVersion" value="2.6.12">
       <p style="font-size:14px;line-height:1.5;background:#fff4e8;padding:14px;border-radius:10px"><strong>Privacy reminder:</strong> do not upload child conversations, Discord IDs, tokens, credentials, names, or other private family information. Crop screenshots before sending if needed.</p>
@@ -29,5 +29,30 @@
     <p style="margin-top:24px"><a href="/privacy-consent.html">Read the privacy notes</a> · <a href="mailto:hello@qili2.com">Contact the team</a></p>
   </main>
   <footer><a class="brand" href="/"><span class="brand-mark">⌂</span><span>Family Tutor</span></a><div><a href="/privacy-consent.html">Privacy & consent</a><a href="/">Home</a><span>© 2026</span></div></footer>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const fields = {
+        page: document.getElementById('feedback-page'),
+        setupStep: document.querySelector('[name="setupStep"]'),
+        productVersion: document.querySelector('[name="productVersion"]'),
+      };
+      for (const [key, field] of Object.entries(fields)) {
+        const value = params.get(key);
+        if (value && value.length <= 200) field.value = value;
+      }
+      const form = document.getElementById('feedback-form');
+      const screenshot = document.getElementById('screenshot');
+      form.addEventListener('submit', event => {
+        const file = screenshot.files[0];
+        if (file && (file.size > 5 * 1024 * 1024 || !file.type.startsWith('image/'))) {
+          event.preventDefault();
+          screenshot.setCustomValidity('Choose a PNG, JPEG, WebP, or GIF image up to 5 MB.');
+          screenshot.reportValidity();
+        }
+      });
+      screenshot.addEventListener('change', () => screenshot.setCustomValidity(''));
+    })();
+  </script>
 </body>
 </html>
