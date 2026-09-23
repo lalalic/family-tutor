@@ -180,9 +180,25 @@ export function createHostedMcpAdapter({ store, tools = DEFAULT_TOOLS, handlers 
 
 function cryptoRandomId() { return `req_${randomUUID()}`; }
 
-export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024, healthCheck = async () => ({ status: 'ok' }), readinessCheck = async () => ({ status: 'ready' }), learnerProfileTemplate = null, latestBootstrap = null } = {}) {
+export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, maxBodyBytes = 256 * 1024, feedbackMaxBodyBytes = 6 * 1024 * 1024, healthCheck = async () => ({ status: 'ok' }), readinessCheck = async () => ({ status: 'ready' }), learnerProfileTemplate = null, latestBootstrap = null, feedbackIntake = null } = {}) {
   if (!adapter?.handle) throw new Error('adapter is required');
   const server = http.createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/feedback') {
+      if (!feedbackIntake) { res.writeHead(404); return res.end(); }
+      let size = 0; const chunks = [];
+      try {
+        for await (const chunk of req) { size += chunk.length; if (size > feedbackMaxBodyBytes) throw new Error('request body too large'); chunks.push(chunk); }
+        const fields = parseMultipart(Buffer.concat(chunks), req.headers['content-type']);
+        const record = await feedbackIntake.submit({
+          message: fields.message,
+          screenshot: fields.screenshotData ? { mediaType: fields.screenshotType, filename: fields.screenshotName, data: fields.screenshotData } : null,
+          context: { page: fields.page, setupStep: fields.setupStep, productVersion: fields.productVersion, referrer: req.headers.referer || null },
+        });
+        const data = Buffer.from(`<!doctype html><meta charset="utf-8"><title>Feedback received — Family Tutor</title><h1>Thanks — your feedback was received.</h1><p>We saved it for the Family Tutor team to review. It will not create an automatic code change.</p><p><a href="/feedback.html">Send more feedback</a> · <a href="/">Return to Family Tutor</a></p>`);
+        res.writeHead(201, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-length': data.length });
+        return res.end(data);
+      } catch { res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }); return res.end('<!doctype html><meta charset="utf-8"><title>Feedback could not be sent — Family Tutor</title><h1>Feedback could not be sent.</h1><p>Please check the required message and screenshot format, then try again.</p><p><a href="/feedback.html">Go back</a></p>'); }
+    }
     if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/readyz')) {
       try {
         const result = await (req.url === '/healthz' ? healthCheck() : readinessCheck());
@@ -215,4 +231,32 @@ export function createHostedMcpServer({ adapter, host = '127.0.0.1', port = 0, m
     } catch { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'request rejected' })); }
   });
   return { server, start: () => new Promise(resolve => server.listen(port, host, resolve)), close: () => new Promise(resolve => server.close(resolve)), endpoint: () => `http://${host}:${server.address()?.port ?? port}/mcp` };
+}
+
+function parseMultipart(body, contentType = '') {
+  const match = String(contentType).match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (!match) throw new Error('multipart form required');
+  const boundary = Buffer.from(`--${match[1] || match[2]}`);
+  const fields = {};
+  let offset = 0;
+  while ((offset = body.indexOf(boundary, offset)) >= 0) {
+    const start = offset + boundary.length;
+    if (body.slice(start, start + 2).toString() === '--') break;
+    const headerStart = start + 2;
+    const separator = body.indexOf(Buffer.from('\r\n\r\n'), headerStart);
+    if (separator < 0) break;
+    const headers = body.slice(headerStart, separator).toString('utf8');
+    const disposition = headers.match(/name="([^"]+)"/i);
+    if (!disposition) { offset = separator + 4; continue; }
+    const next = body.indexOf(boundary, separator + 4);
+    if (next < 0) break;
+    const value = body.slice(separator + 4, next - 2);
+    const name = disposition[1];
+    const filename = headers.match(/filename="([^"]*)"/i)?.[1] || '';
+    const type = headers.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || '';
+    if (filename) { fields[`${name}Name`] = filename; fields[`${name}Type`] = type; fields[`${name}Data`] = value.toString('base64'); }
+    else fields[name] = value.toString('utf8');
+    offset = next;
+  }
+  return fields;
 }

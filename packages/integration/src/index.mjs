@@ -4,6 +4,7 @@ import { createHostedMcpAdapter, createHostedMcpServer } from '../../hosted-mcp-
 import { createOnboardingFlow } from '../../onboarding/src/index.mjs';
 import { createReadinessChecks, loadProductionConfig } from '../../operations/src/index.mjs';
 import { createHostedExtensionRelay } from './extension-relay.mjs';
+import { createFeedbackIntake } from '../../feedback/src/index.mjs';
 import { LATEST_BOOTSTRAP, LEARNER_PROFILE_BOOTSTRAP_URL, LEARNER_PROFILE_TEMPLATE, LEARNER_PROFILE_TEMPLATE_PATH } from './learner-profile-template.mjs';
 
 function required(value, label) {
@@ -229,11 +230,12 @@ export function createFamilyTutorProduct({
 export function createProductionFamilyTutorProduct({ env = process.env, provider, ...options } = {}) {
   const config = loadProductionConfig(env);
   const store = createProvisioningStore({ filePath: config.storagePath });
+  const feedbackIntake = createFeedbackIntake({ filePath: `${config.storagePath}.feedback.json` });
   return createFamilyTutorProduct({
     ...options,
     provider,
     store,
-    server: { host: config.host, port: config.port, maxBodyBytes: config.maxBodyBytes, ...(options.server || {}) },
+    server: { host: config.host, port: config.port, maxBodyBytes: config.maxBodyBytes, feedbackIntake, ...(options.server || {}) },
   });
 }
 

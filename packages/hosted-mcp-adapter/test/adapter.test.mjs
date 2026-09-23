@@ -193,3 +193,26 @@ test('serves the learner profile template and canonical bootstrap without learne
     await server.close();
   }
 });
+
+test('accepts public feedback with an optional screenshot and returns confirmation', async () => {
+  const { store } = setup();
+  const records = [];
+  const adapter = createHostedMcpAdapter({ store });
+  const server = createHostedMcpServer({ adapter, feedbackIntake: { submit: input => { records.push(input); return { id: 'fb_test' }; } } });
+  await server.start();
+  try {
+    const form = new FormData();
+    form.set('message', 'The setup button did not continue.');
+    form.set('page', 'setup');
+    form.set('setupStep', 'extension');
+    form.set('productVersion', '2.6.12');
+    form.set('screenshot', new Blob([Buffer.from('png')], { type: 'image/png' }), 'screen.png');
+    const response = await fetch(`${server.endpoint().replace('/mcp', '')}/v1/feedback`, { method: 'POST', body: form });
+    assert.equal(response.status, 201);
+    assert.match(await response.text(), /feedback was received/);
+    assert.equal(records[0].context.setupStep, 'extension');
+    assert.equal(records[0].screenshot.mediaType, 'image/png');
+  } finally {
+    await server.close();
+  }
+});

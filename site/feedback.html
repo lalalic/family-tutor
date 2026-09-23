@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Send setup or product feedback to Family Tutor.">
+  <title>Send feedback — Family Tutor</title>
+  <link rel="stylesheet" href="/styles-20260922-v3.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Family Tutor home"><span class="brand-mark">⌂</span><span>Family Tutor</span></a>
+    <nav aria-label="Main navigation"><a href="/setup">Setup guide</a><a href="/">Home</a></nav>
+  </header>
+  <main class="section-wrap" style="max-width:760px;padding-top:72px;padding-bottom:96px">
+    <p class="eyebrow">Setup support</p>
+    <h1>Tell us what went wrong.</h1>
+    <p class="lede">Use this form for a setup problem or product suggestion. Your report is saved for the Family Tutor team first; it does not automatically create a code change.</p>
+    <form action="/v1/feedback" method="post" enctype="multipart/form-data" style="display:grid;gap:18px;margin-top:32px">
+      <label for="message"><strong>What happened?</strong><br><textarea id="message" name="message" required maxlength="12000" rows="8" style="width:100%;margin-top:8px;padding:12px" placeholder="For example: I reached the extension step, but the setup page did not continue."></textarea></label>
+      <label for="screenshot"><strong>Screenshot (optional)</strong><br><input id="screenshot" name="screenshot" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="margin-top:8px"></label>
+      <input type="hidden" name="page" value="public-feedback">
+      <input type="hidden" name="setupStep" value="">
+      <input type="hidden" name="productVersion" value="2.6.12">
+      <p style="font-size:14px;line-height:1.5;background:#fff4e8;padding:14px;border-radius:10px"><strong>Privacy reminder:</strong> do not upload child conversations, Discord IDs, tokens, credentials, names, or other private family information. Crop screenshots before sending if needed.</p>
+      <button type="submit" class="primary" style="width:max-content;border:0;cursor:pointer;padding:14px 22px">Send feedback</button>
+    </form>
+    <p style="margin-top:24px"><a href="/privacy-consent.html">Read the privacy notes</a> · <a href="mailto:hello@qili2.com">Contact the team</a></p>
+  </main>
+  <footer><a class="brand" href="/"><span class="brand-mark">⌂</span><span>Family Tutor</span></a><div><a href="/privacy-consent.html">Privacy & consent</a><a href="/">Home</a><span>© 2026</span></div></footer>
+</body>
+</html>
