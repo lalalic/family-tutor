@@ -4,6 +4,9 @@
 
 - [ ] Owner has approved pilot scope, pricing, refund/credit policy, and
       support hours.
+- [ ] The approved offer and payment gate in
+      [`pilot-offer-payment-decision-brief-2026-09-24.md`](pilot-offer-payment-decision-brief-2026-09-24.md)
+      are recorded; no family is charged before the gate passes.
 - [ ] Privacy notice, consent/guardian language, terms, and retention schedule
       have been reviewed for the target market.
 - [ ] Family owner identity and authorized Discord/ChatGPT access are verified.
