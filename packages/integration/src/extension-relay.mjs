@@ -17,7 +17,7 @@ function familyContext(actor, childId, text) {
   return `<FAMILY_TUTOR_CONTEXT>\n${JSON.stringify({ type: actor, data })}\n</FAMILY_TUTOR_CONTEXT>`;
 }
 
-export function createHostedExtensionRelay({ store, provider, path = '/extension', turnTtlMs = 15 * 60 * 1000, clock = Date.now } = {}) {
+export function createHostedExtensionRelay({ store, provider, path = '/ws', turnTtlMs = 15 * 60 * 1000, clock = Date.now } = {}) {
   if (!store?.authenticateSession) throw new Error('store is required');
   if (!provider?.send) throw new Error('provider.send is required');
   const sockets = new Map();
@@ -130,7 +130,9 @@ export function createHostedExtensionRelay({ store, provider, path = '/extension
     server.on('upgrade', (req, socket, head) => {
       let url;
       try { url = new URL(req.url, `http://${req.headers.host || 'localhost'}`); } catch { socket.destroy(); return; }
-      if (url.pathname !== path) return;
+      // `/ws` is the customer-facing endpoint. Keep `/extension` as a
+      // compatibility alias for already-installed pilot builds.
+      if (url.pathname !== path && url.pathname !== '/extension') return;
       wss.handleUpgrade(req, socket, head, client => wss.emit('connection', client));
     });
     wss.on('connection', socket => {

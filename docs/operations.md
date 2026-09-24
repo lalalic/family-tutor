@@ -25,7 +25,10 @@ The hosted server exposes data-free operational endpoints:
 - `GET /readyz` runs the deployment's readiness check and returns 503 when a
   dependency is unavailable.
 - `POST /mcp` is the authenticated ChatGPT tool endpoint.
-- `GET/upgrade /extension` is the authenticated extension WebSocket endpoint. The extension sends its family session token after socket establishment; tokens must not be placed in URLs.
+- `GET/upgrade /ws` is the authenticated extension WebSocket endpoint. The
+  extension sends its family session token after socket establishment; tokens
+  must not be placed in URLs. `/extension` remains a compatibility alias for
+  already-installed pilot builds and should not be used in new configuration.
 
 ## State, migrations, and recovery
 

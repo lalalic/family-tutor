@@ -30,7 +30,8 @@ Discord channel ID. For hosted customers the extension connects outbound to
 `wss://family-tutor.qili2.com/ws` and authenticates after connection with
 a scoped family session token stored in Chrome extension storage. The token is
 never placed in the WebSocket URL. The legacy loopback bridge remains supported
-for local dogfood only.
+for local dogfood only. The hosted server also accepts `/extension` as a
+compatibility alias for older pilot builds, but new releases must use `/ws`.
 
 The `family-tutor` tab group is the ownership boundary: turns are sent only to
 the grouped tab selected for that child. A page outside the group is never
