@@ -1,17 +1,20 @@
 import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
+import { FamilyWorkspaceManager, createRestoreDebouncer } from './workspace-manager.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
+const familyWorkspace = new FamilyWorkspaceManager(chrome, {
+  groupTitle: GROUP_TITLE,
+  isChatGptUrl,
+  projectIdFromUrl: projectIdFromChatGptUrl,
+});
 let socket = null;
 let availableChildren = [];
 const kidRequests = new Map();
 let reconnectTimer = null;
 let keepAliveTimer = null;
-let familyGroupId = null;
 let reconcileQueue = Promise.resolve();
-let restoreTimer = null;
-let restoreFallbackTimer = null;
 
 async function settings() {
   return chrome.storage.local.get({ bindings: {}, threadUrls: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '', bridgeRefreshToken: '' });
@@ -250,96 +253,31 @@ async function reportBindings() {
 }
 
 async function familyGroups() {
-  return chrome.tabGroups.query({ title: GROUP_TITLE });
-}
-
-async function getCachedFamilyGroup() {
-  if (!Number.isInteger(familyGroupId)) return null;
-  try {
-    const group = await chrome.tabGroups.get(familyGroupId);
-    if (group?.title === GROUP_TITLE) return group;
-  } catch {}
-  familyGroupId = null;
-  return null;
+  return familyWorkspace.familyGroups();
 }
 
 async function primaryFamilyGroup() {
-  const cached = await getCachedFamilyGroup();
-  if (cached) return cached;
-  const groups = await familyGroups();
-  const group = groups[0] || null;
-  familyGroupId = Number.isInteger(group?.id) ? group.id : null;
-  return group;
+  return familyWorkspace.primaryGroup();
 }
 
 async function ensureFamilyGroup(seedTabId) {
-  let group = await primaryFamilyGroup();
-  if (!group) {
-    if (!Number.isInteger(seedTabId)) return null;
-    const id = await chrome.tabs.group({ tabIds: [seedTabId] });
-    group = await chrome.tabGroups.update(id, { title: GROUP_TITLE, collapsed: false });
-    familyGroupId = id;
-    return group;
-  }
-
-  const duplicates = (await familyGroups()).filter((item) => item.id !== group.id);
-  for (const duplicate of duplicates) {
-    const tabs = await chrome.tabs.query({ groupId: duplicate.id });
-    if (!tabs.length) continue;
-    const ids = tabs.map((tab) => tab.id).filter(Number.isInteger);
-    if (!ids.length) continue;
-    await chrome.tabs.move(ids, { windowId: group.windowId, index: -1 });
-    await chrome.tabs.group({ groupId: group.id, tabIds: ids });
-  }
-  await chrome.tabGroups.update(group.id, { title: GROUP_TITLE, collapsed: false });
-  return group;
+  return familyWorkspace.ensureGroup(seedTabId);
 }
 
 async function putTabInFamilyGroup(tabId, group = null) {
-  if (!Number.isInteger(tabId)) throw new Error('invalid ChatGPT tab');
-  let tab = await chrome.tabs.get(tabId);
-  group ||= await ensureFamilyGroup(tabId);
-  if (!group) throw new Error('could not create family-tutor tab group');
-
-  if (tab.windowId !== group.windowId) {
-    const moved = await chrome.tabs.move(tab.id, { windowId: group.windowId, index: -1 });
-    tab = Array.isArray(moved) ? moved[0] : moved;
-  }
-  if (tab.groupId !== group.id) await chrome.tabs.group({ groupId: group.id, tabIds: [tab.id] });
-  return chrome.tabs.get(tab.id);
+  return familyWorkspace.putTab(tabId, group);
 }
 
 async function allChatGptTabs() {
-  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] });
-  return tabs.filter((tab) => Number.isInteger(tab.id) && isChatGptUrl(tab.url));
+  return familyWorkspace.allChatGptTabs();
 }
 
 async function waitForExactThread(threadUrl, timeoutMs = 6000) {
-  if (!threadUrl) return null;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const tabs = await allChatGptTabs();
-    const exact = sortTabs(tabs.filter((tab) => tab.url === threadUrl))[0] || null;
-    if (exact) return exact;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return null;
-}
-
-function sortTabs(tabs) {
-  return [...tabs].sort(
-    (a, b) => Number(Boolean(b.active)) - Number(Boolean(a.active))
-      || Number(b.lastAccessed || 0) - Number(a.lastAccessed || 0),
-  );
+  return familyWorkspace.waitForExactThread(threadUrl, timeoutMs);
 }
 
 async function createProjectTab(projectId, threadUrl = null) {
-  const url = threadUrl && projectIdFromChatGptUrl(threadUrl) === projectId
-    ? threadUrl
-    : `https://chatgpt.com/g/${projectId}/project`;
-  const tab = await chrome.tabs.create({ url, active: false });
-  if (!Number.isInteger(tab?.id)) throw new Error('could not open ChatGPT project tab');
-  return tab;
+  return familyWorkspace.createProjectTab(projectId, threadUrl);
 }
 
 async function waitForProjectTab(tabId, projectId, timeoutMs = 30000) {
@@ -356,113 +294,16 @@ async function waitForProjectTab(tabId, projectId, timeoutMs = 30000) {
 
 async function reconcileFamilyTabsUnlocked(preferredTabs = {}, { allowCreate = true } = {}) {
   const { bindings, threadUrls } = await settings();
-  const entries = Object.entries(bindings);
-  if (!entries.length) {
-    for (const group of await familyGroups()) {
-      const tabs = await chrome.tabs.query({ groupId: group.id });
-      const ids = tabs.map((tab) => tab.id).filter(Number.isInteger);
-      if (ids.length) await chrome.tabs.ungroup(ids);
-    }
-    familyGroupId = null;
-    return {};
+  const result = await familyWorkspace.reconcile({
+    bindings,
+    threadUrls,
+    preferredTabs,
+    allowCreate,
+  });
+  if (JSON.stringify(result.threadUrls) !== JSON.stringify(threadUrls)) {
+    await chrome.storage.local.set({ threadUrls: result.threadUrls });
   }
-
-  const allTabs = await allChatGptTabs();
-  let seed = null;
-  for (const [childId, projectId] of entries) {
-    const preferredId = preferredTabs[childId];
-    if (Number.isInteger(preferredId)) {
-      try {
-        const tab = await chrome.tabs.get(preferredId);
-        if (projectIdFromChatGptUrl(tab.url) === projectId) {
-          seed = tab;
-          break;
-        }
-      } catch {}
-    }
-    const threadUrl = threadUrls[childId];
-    if (threadUrl) {
-      seed = sortTabs(allTabs.filter((tab) => tab.url === threadUrl))[0] || null;
-      if (seed) break;
-    }
-    seed = sortTabs(allTabs.filter((tab) => projectIdFromChatGptUrl(tab.url) === projectId))[0] || null;
-    if (seed) break;
-  }
-  if (!seed && allowCreate) seed = await createProjectTab(entries[0][1], threadUrls[entries[0][0]]);
-  if (!seed) return {};
-
-  const group = await ensureFamilyGroup(seed.id);
-  const chosen = new Set();
-  const childTabs = {};
-  const discoveredThreadUrls = { ...threadUrls };
-
-  for (const [childId, projectId] of entries) {
-    let tab = null;
-    const threadUrl = threadUrls[childId];
-    const preferredId = preferredTabs[childId];
-    if (Number.isInteger(preferredId)) {
-      try {
-        const candidate = await chrome.tabs.get(preferredId);
-        if (projectIdFromChatGptUrl(candidate.url) === projectId) tab = candidate;
-      } catch {}
-    }
-
-    if (!tab && threadUrl) {
-      const grouped = await chrome.tabs.query({ groupId: group.id });
-      tab = sortTabs(grouped.filter((candidate) => candidate.url === threadUrl))[0] || null;
-    }
-    if (!tab && threadUrl) {
-      const candidates = await allChatGptTabs();
-      tab = sortTabs(candidates.filter((candidate) => candidate.url === threadUrl))[0] || null;
-    }
-    if (!tab && !threadUrl) {
-      const grouped = await chrome.tabs.query({ groupId: group.id });
-      tab = sortTabs(grouped.filter((candidate) => projectIdFromChatGptUrl(candidate.url) === projectId))[0] || null;
-    }
-    if (!tab && !threadUrl) {
-      const candidates = await allChatGptTabs();
-      tab = sortTabs(candidates.filter((candidate) => projectIdFromChatGptUrl(candidate.url) === projectId))[0] || null;
-    }
-    if (!tab && allowCreate) tab = await createProjectTab(projectId, threadUrl);
-    if (!tab) continue;
-
-    tab = await putTabInFamilyGroup(tab.id, group);
-    chosen.add(tab.id);
-    childTabs[childId] = tab.id;
-    try {
-      const currentUrl = new URL(tab.url);
-      if (projectIdFromChatGptUrl(tab.url) === projectId && currentUrl.pathname.includes('/c/')) {
-        discoveredThreadUrls[childId] = tab.url;
-      }
-    } catch {}
-  }
-
-  const grouped = await chrome.tabs.query({ groupId: group.id });
-  const extras = grouped.map((tab) => tab.id).filter((id) => Number.isInteger(id) && !chosen.has(id));
-  if (extras.length) await chrome.tabs.ungroup(extras);
-
-  // Chrome session restore may resurrect duplicate copies of the exact saved
-  // Family Tutor threads. Keep the chosen tab for each child and close only
-  // tabs whose URL exactly matches a saved child thread URL.
-  const allAfter = await allChatGptTabs();
-  const duplicateIds = [];
-  for (const [childId] of entries) {
-    const exactUrl = discoveredThreadUrls[childId];
-    const keepId = childTabs[childId];
-    if (!exactUrl || !Number.isInteger(keepId)) continue;
-    for (const candidate of allAfter) {
-      if (candidate.id !== keepId && candidate.url === exactUrl && Number.isInteger(candidate.id)) {
-        duplicateIds.push(candidate.id);
-      }
-    }
-  }
-  if (duplicateIds.length) await chrome.tabs.remove([...new Set(duplicateIds)]);
-
-  await chrome.tabGroups.update(group.id, { title: GROUP_TITLE, collapsed: false });
-  if (JSON.stringify(discoveredThreadUrls) !== JSON.stringify(threadUrls)) {
-    await chrome.storage.local.set({ threadUrls: discoveredThreadUrls });
-  }
-  return childTabs;
+  return result.childTabs;
 }
 
 function reconcileFamilyTabs(preferredTabs = {}, options = {}) {
@@ -472,16 +313,7 @@ function reconcileFamilyTabs(preferredTabs = {}, options = {}) {
 }
 
 async function resolveProjectTab(projectId) {
-  const group = await primaryFamilyGroup();
-  if (!group) return null;
-  const tabs = await chrome.tabs.query({ groupId: group.id });
-  return sortTabs(
-    tabs.filter(
-      (tab) => tab.status === 'complete'
-        && isChatGptUrl(tab.url)
-        && projectIdFromChatGptUrl(tab.url) === projectId,
-    ),
-  )[0] || null;
+  return familyWorkspace.resolveProjectTab(projectId);
 }
 
 async function rotateActiveThread(childId) {
@@ -872,32 +704,27 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 });
 
-function restoreOnBrowserActivity() {
-  clearTimeout(restoreTimer);
-  restoreTimer = setTimeout(() => {
-    restoreTimer = null;
-    reconcileFamilyTabs({}, { allowCreate: false })
-      .then(() => connect())
-      .catch((error) => console.error('[family-tutor] browser restore failed', error));
-  }, 3000);
-
-  clearTimeout(restoreFallbackTimer);
-  restoreFallbackTimer = setTimeout(() => {
-    restoreFallbackTimer = null;
-    reconcileFamilyTabs()
-      .then(() => connect())
-      .catch((error) => console.error('[family-tutor] fallback restore failed', error));
-  }, 12000);
-}
+const restoreOnBrowserActivity = createRestoreDebouncer(
+  () => reconcileFamilyTabs()
+    .then(() => connect())
+    .catch((error) => console.error('[family-tutor] browser restore failed', error)),
+  { delayMs: 3000 },
+);
 
 chrome.runtime.onStartup.addListener(restoreOnBrowserActivity);
 
-chrome.windows.onCreated.addListener(() => {
-  restoreOnBrowserActivity();
+chrome.windows.onCreated.addListener(restoreOnBrowserActivity);
+
+chrome.tabs.onCreated.addListener((tab) => {
+  if (isChatGptUrl(tab?.pendingUrl || tab?.url)) restoreOnBrowserActivity();
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !isChatGptUrl(tab?.url)) return;
+  if (!isChatGptUrl(tab?.url)) return;
+  if (changeInfo.status === 'complete' || changeInfo.url) restoreOnBrowserActivity();
+});
+
+chrome.tabs.onRemoved.addListener(() => {
   restoreOnBrowserActivity();
 });
 
