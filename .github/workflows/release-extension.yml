@@ -1,0 +1,43 @@
+name: Release extension ZIP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/family-tutor/extension/**"
+      - ".github/workflows/release-extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci --prefix packages/integration
+      - run: npm ci --prefix skills/family-tutor/mcp-server
+      - run: npm ci --prefix skills/family-tutor/runtime/tutor-orchestrator
+      - run: npm run check
+      - run: git diff --check
+      - run: npm run package:extension
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./skills/family-tutor/extension/manifest.json').version")"
+          TAG="v$VERSION"
+          ZIP="dist/family-tutor-extension-$VERSION.zip"
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG"               --target "$GITHUB_SHA"               --title "$TAG"               --generate-notes
+          fi
+
+          gh release upload "$TAG" "$ZIP" --clobber
