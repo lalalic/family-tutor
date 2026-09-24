@@ -158,6 +158,16 @@ export function createProvisioningStore({ filePath = null, clock = Date.now, idG
       if (!record || state.families[record.familyId]?.status !== 'active') return null;
       return clone({ sessionId: record.sessionId, familyId: record.familyId, childId: record.childId ?? null, scopes: record.scopes, expiresAt: record.expiresAt });
     },
+    purgeExpiredSessions({ retentionMs = 0 } = {}) {
+      if (!Number.isInteger(retentionMs) || retentionMs < 0) throw new Error('retentionMs must be a non-negative integer');
+      const cutoff = clock() - retentionMs;
+      const expired = Object.values(state.sessions).filter(session => new Date(session.expiresAt).getTime() <= cutoff).map(session => session.sessionId);
+      if (!expired.length) return { sessionsRemoved: 0, retentionMs };
+      return mutate(() => {
+        for (const sessionId of expired) delete state.sessions[sessionId];
+        return { sessionsRemoved: expired.length, retentionMs };
+      });
+    },
     revokeSession(sessionId) { return mutate(() => { const record = state.sessions[id(sessionId, 'sessionId')]; if (!record) throw new Error('session is not found'); record.revokedAt = timestamp(clock); return { sessionId: record.sessionId, revokedAt: record.revokedAt }; }); },
     exportFamily({ sessionToken, familyId }) {
       const session = requireLifecycleSession(sessionToken, familyId, EXPORT_SCOPE);

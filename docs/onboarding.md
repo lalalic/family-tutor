@@ -29,8 +29,9 @@ blocked until they exist.
 5. The canonical guide describes the full ChatGPT-side setup, including installing/connecting the Family Tutor plugin/app/MCP, enabling ChatGPT Developer Mode, and creating/linking one dedicated ChatGPT Project per kid and setting each learner Project to Project-only memory. Manual setup follows this guide from start to finish.
 6. **Setup with Codex** uses the same hosted setup URL as its source of truth. Codex should open/read the canonical guide, inspect the current step, and perform every safely automatable setup action from that guide. It should stop only for Discord/ChatGPT security, authorization, or other user-presence gates. It must not print or persist setup claims, auth/refresh tokens, provider IDs, or child conversation content.
 7. The extension may expose an **Auto Setup** button that best-effort attempts all setup actions it can perform safely, including the browser/ChatGPT steps described by the hosted guide. The extension must not contain a parallel help/manual experience. It may expose a simple link that opens the canonical hosted setup guide, including the current `?step=<step>` when known. The hosted guide tells the user that **Auto Setup** exists, what it will try, and that manual completion may still be required for protected steps. Claim redemption may happen automatically from the claim-bearing setup page only after the Discord prerequisites are satisfied.
-8. After every kid Project is linked, finishing setup sends one idempotent welcome/help message to each kid channel and one to the parent channel.
-9. Run acceptance. Distinct child probes must return to their originating child destinations, parent reminders must reach the named child and confirm to the parent, and cross-family/cross-child routes must be rejected.
+8. Before connecting services or binding destinations, the operator records guardian consent, family ownership confirmation, and acknowledgement of the versioned privacy notice. These are operational checkpoints, not legal approval or a substitute for approved consent language.
+9. After every kid Project is linked, finishing setup sends one idempotent welcome/help message to each kid channel and one to the parent channel.
+10. Run acceptance. Distinct child probes must return to their originating child destinations, parent reminders must reach the named child and confirm to the parent, and cross-family/cross-child routes must be rejected.
 
 ## Canonical setup guide contract
 
@@ -69,6 +70,7 @@ the real Discord acceptance path below, not a replacement for it.
 ## Acceptance checklist
 
 - [ ] Discord account, family server, parent channel, and every kid channel existed before setup continued.
+- [ ] Guardian consent, family ownership, and privacy-notice acknowledgement were recorded for the current notice version.
 - [ ] ChatGPT Developer Mode is connected to Family Tutor MCP.
 - [ ] Shared Discord bot is invited to the customer server.
 - [ ] Parent and every child destination are bound through logical keys.

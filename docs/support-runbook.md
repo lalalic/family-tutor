@@ -3,6 +3,14 @@
 This runbook is for the operator supporting a private pilot. It intentionally
 keeps child content out of routine support notes.
 
+## Support record template
+
+For each request, record only: safe request or incident ID, received time,
+authenticated family reference, category, status, operator, and approved
+outcome. Do not record child names when a family reference is sufficient, and
+never record provider IDs, tokens, message text, screenshots of child
+conversations, or copied transcripts.
+
 ## Support priorities
 
 1. Safety concern or suspected unauthorized access: respond immediately and
@@ -73,3 +81,8 @@ Recommended starting targets: acknowledge urgent incidents within 1 hour during
 the agreed window, normal setup issues within 1 business day, and product
 feedback within 3 business days. Confirm timezone, channel, holidays, and
 after-hours handling in the family agreement.
+
+The actual support address, hours, timezone, after-hours owner, and escalation
+phone must be filled in and approved before accepting a family. The public
+privacy page currently exposes only the enquiry address and does not promise
+an SLA.

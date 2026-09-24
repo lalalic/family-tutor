@@ -1,5 +1,6 @@
 const STEP_ORDER = Object.freeze([
   'prerequisites',
+  'consent',
   'chatgpt',
   'discord',
   'destinations',
@@ -9,6 +10,7 @@ const STEP_ORDER = Object.freeze([
 
 const STEP_LABELS = Object.freeze({
   prerequisites: 'Check prerequisites',
+  consent: 'Confirm family ownership and consent',
   chatgpt: 'Connect ChatGPT and Family Tutor',
   discord: 'Invite the shared Family Tutor bot',
   destinations: 'Bind parent and child destinations',
@@ -42,6 +44,7 @@ function emptyState(familyId) {
   return {
     familyId,
     prerequisites: null,
+    consent: null,
     chatgpt: { connected: false, mcpConfigured: false },
     discord: { invited: false },
     destinations: { parent: false, children: [] },
@@ -74,6 +77,7 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
     const missingProjects = children.filter(childId => !state.projects.bindings[childId]);
     const checks = {
       prerequisites: state.prerequisites?.ok === true,
+      consent: state.consent?.ok === true,
       chatgpt: state.chatgpt.connected && state.chatgpt.mcpConfigured,
       discord: state.discord.invited,
       destinations: state.destinations.parent && children.length > 0 && children.every(childId => state.destinations.children.includes(childId)),
@@ -97,7 +101,31 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
     return status();
   }
 
+  async function consent(input = {}) {
+    try {
+      const guardianConfirmed = input.guardianConfirmed === true;
+      const familyOwnerConfirmed = input.familyOwnerConfirmed === true;
+      const privacyNoticeAcknowledged = input.privacyNoticeAcknowledged === true;
+      const noticeVersion = text(input.noticeVersion, 'privacy notice version');
+      if (!guardianConfirmed || !familyOwnerConfirmed || !privacyNoticeAcknowledged) {
+        throw new Error('guardian consent, family ownership, and privacy notice acknowledgement are required');
+      }
+      state.consent = {
+        ok: true,
+        guardianConfirmed,
+        familyOwnerConfirmed,
+        privacyNoticeAcknowledged,
+        noticeVersion,
+        recordedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      state.consent = { ok: false, detail: safeDetail(error) };
+    }
+    return status();
+  }
+
   async function chatgpt(input = {}) {
+    if (state.prerequisites?.ok !== true || state.consent?.ok !== true) return status();
     try {
       const result = connectChatGpt ? await connectChatGpt(input) : input;
       state.chatgpt = { connected: result?.connected === true, mcpConfigured: result?.mcpConfigured === true, detail: result?.connected && result?.mcpConfigured ? null : safeDetail(result?.detail || 'ChatGPT and the Family Tutor MCP are not both connected') };
@@ -180,7 +208,7 @@ export function createOnboardingFlow({ familyId, store, checkPrerequisites, conn
     return clone({ ...status(), acceptance: state.acceptance });
   }
 
-  return Object.freeze({ status, prerequisites, chatgpt, discord, destinations, projects, acceptance });
+  return Object.freeze({ status, prerequisites, consent, chatgpt, discord, destinations, projects, acceptance });
 }
 
 export { STEP_ORDER, STEP_LABELS };

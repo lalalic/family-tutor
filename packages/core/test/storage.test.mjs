@@ -33,6 +33,15 @@ test('expires and revokes sessions without storing bearer tokens', () => {
   assert.equal(store.authenticateSession(fresh.token), null);
 });
 
+test('purges expired session records according to the configured retention window', () => {
+  const { store, advance } = setup();
+  store.provisionFamily({ familyId: 'family-a', parentProviderId: 'parent-provider' });
+  const session = store.createSession({ familyId: 'family-a', ttlMs: 1000 });
+  advance(1001);
+  assert.deepEqual(store.purgeExpiredSessions(), { sessionsRemoved: 1, retentionMs: 0 });
+  assert.equal(store.snapshot().sessions[session.sessionId], undefined);
+});
+
 test('persists provisioning records and rejects transcript-shaped input', () => {
   const dir = mkdtempSync(join(tmpdir(), 'family-tutor-'));
   const path = join(dir, 'state.json');

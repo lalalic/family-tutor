@@ -56,6 +56,7 @@ async function connectExtension(product, familyId, childIds) {
 async function onboard(product, familyId) {
   const flow = product.onboarding(familyId);
   await flow.prerequisites();
+  await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' });
   await flow.chatgpt();
   await flow.discord();
   await flow.destinations({ parent: 'parent', children: [{ childId: 'alex', destination: 'alex' }, { childId: 'sam', destination: 'sam' }] });

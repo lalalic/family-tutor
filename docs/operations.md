@@ -46,6 +46,13 @@ sessions); it does not mutate ChatGPT, Discord, private learner runtime, or
 externally retained audit data. Follow the confirmation and recording procedure
 in [`support-runbook.md`](support-runbook.md).
 
+Schedule `purgeExpiredSessions({ retentionMs })` for the provisioning store as
+part of the deployment's retention job. Set `retentionMs` to the approved
+post-expiry operational window, record only the count and run status, and do
+not put session tokens or child content in the job log. This cleanup is
+separate from external audit retention, which still requires an owner-approved
+schedule and deletion procedure.
+
 For the JSON store, stop writes, copy the state file with permissions preserved,
 and verify the copy parses before starting a replacement process. Use encrypted
 database snapshots for hosted deployments. Rehearse restoration before the

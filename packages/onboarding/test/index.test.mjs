@@ -26,7 +26,10 @@ function setup(overrides = {}) {
 test('resumes setup in ordered steps and completes acceptance', async () => {
   const { flow, calls } = setup();
   assert.equal(flow.status().current, 'prerequisites');
-  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  await flow.prerequisites();
+  assert.equal((await flow.chatgpt()).current, 'consent');
+  await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' });
+  await flow.chatgpt(); await flow.discord();
   await flow.destinations({ parent: { key: 'parent' }, children: [{ childId: 'alex', destination: { key: 'alex' } }] });
   await flow.projects([{ childId: 'alex', projectId: 'g-p-12345678901234567890123456789012' }]);
   assert.equal(flow.status().current, 'acceptance');
@@ -41,14 +44,27 @@ test('safe incomplete state does not leak provider ids or tokens', async () => {
     inviteDiscordBot: async () => ({ invited: false, detail: 'bot invite pending' }),
   });
   const result = await flow.chatgpt();
+  await flow.prerequisites();
+  await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' });
+  const retried = await flow.chatgpt();
   assert.equal(result.current, 'prerequisites');
-  assert.match(result.state.chatgpt.detail, /authorization=\[redacted\]/);
-  assert.doesNotMatch(result.state.chatgpt.detail, /secret-token|private\.example/);
+  assert.match(retried.state.chatgpt.detail, /authorization=\[redacted\]/);
+  assert.doesNotMatch(retried.state.chatgpt.detail, /secret-token|private\.example/);
+});
+
+test('requires explicit consent and ownership checkpoints before connecting services', async () => {
+  const { flow } = setup();
+  await flow.prerequisites();
+  const missing = await flow.consent({ guardianConfirmed: true, noticeVersion: '2026-09-23' });
+  assert.equal(missing.state.consent.ok, false);
+  assert.match(missing.state.consent.detail, /guardian consent/);
+  const complete = await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' });
+  assert.equal(complete.state.consent.ok, true);
 });
 
 test('rejects invalid or unknown Project bindings without mutating completed state', async () => {
   const { flow } = setup();
-  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  await flow.prerequisites(); await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' }); await flow.chatgpt(); await flow.discord();
   await flow.destinations({ parent: { key: 'parent' }, children: [{ childId: 'alex', destination: { key: 'alex' } }] });
   const result = await flow.projects([{ childId: 'alex', projectId: 'not-a-project' }]);
   assert.equal(result.state.projects.bindings.alex, undefined);
@@ -57,7 +73,7 @@ test('rejects invalid or unknown Project bindings without mutating completed sta
 
 test('rejects provider ids at the logical destination boundary', async () => {
   const { flow, calls } = setup();
-  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  await flow.prerequisites(); await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' }); await flow.chatgpt(); await flow.discord();
   const result = await flow.destinations({
     parent: { channelId: 'discord-123' },
     children: [{ childId: 'alex', destination: { key: 'alex' } }],
@@ -69,7 +85,7 @@ test('rejects provider ids at the logical destination boundary', async () => {
 
 test('reports incomplete destination and extension checks without passing acceptance', async () => {
   const { flow } = setup({ checkExtension: async () => ({ ok: false, detail: 'extension tab token=private-token' }) });
-  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  await flow.prerequisites(); await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' }); await flow.chatgpt(); await flow.discord();
   const missing = await flow.destinations({ parent: 'parent' });
   assert.equal(missing.current, 'destinations');
   assert.deepEqual(missing.missingProjects, ['alex']);
@@ -85,7 +101,7 @@ test('reports incomplete destination and extension checks without passing accept
 
 test('prevalidates all bindings so invalid input cannot partially bind', async () => {
   const { flow, calls } = setup();
-  await flow.prerequisites(); await flow.chatgpt(); await flow.discord();
+  await flow.prerequisites(); await flow.consent({ guardianConfirmed: true, familyOwnerConfirmed: true, privacyNoticeAcknowledged: true, noticeVersion: '2026-09-23' }); await flow.chatgpt(); await flow.discord();
   const result = await flow.destinations({ parent: { key: 'parent' }, children: [{ childId: 'unknown', destination: { key: 'x' } }] });
   assert.equal(result.current, 'destinations');
   assert.deepEqual(calls, []);

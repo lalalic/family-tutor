@@ -42,6 +42,12 @@ the pilot operator about deletion or export through the approved support
 contact; the operator must record only the request status and approved result,
 not a transcript copy.
 
+The onboarding flow records explicit, non-legal checkpoints for guardian
+confirmation, family ownership confirmation, and acknowledgement of the
+versioned privacy notice before it connects ChatGPT or binds destinations.
+Those checkpoints document what the operator received; they do not constitute
+legal approval, replace a guardian-consent form, or authorize a market launch.
+
 The provisioning store exposes authenticated, scope-gated operator operations
 for a redacted family/child export and confirmed family/child deletion.
 Exports include Family Tutor's status, logical destination keys, and session
@@ -57,6 +63,13 @@ threads, Discord messages/channels, learner memory under the private family
 runtime, or data held by external providers. The operator must separately
 confirm those customer-owned deletion steps with the family and must not claim
 that Family Tutor deleted them.
+
+Session records are operational data with a bounded lifetime: sessions stop
+authenticating at expiry, and the provisioning store exposes an explicit
+`purgeExpiredSessions({ retentionMs })` operation for the deployment's
+retention job. A deployment must schedule that operation and separately define
+how long redacted external audit records are retained. No child content is
+needed for either operation.
 
 See [`docs/launch-checklist.md`](launch-checklist.md) and
 [`docs/support-runbook.md`](support-runbook.md) for operational handling.
