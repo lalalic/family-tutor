@@ -2,11 +2,12 @@ let activeCorrelationId = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
-const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"]')]
+const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
 const userTurnCount = () => Math.max(
   document.querySelectorAll('[data-message-author-role="user"]').length,
+  document.querySelectorAll('[data-user-message-bubble="true"]').length,
   document.querySelectorAll('button[aria-label="Edit message"]').length,
 );
 
