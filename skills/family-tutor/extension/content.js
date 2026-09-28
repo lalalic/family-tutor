@@ -106,12 +106,21 @@ function fillComposer(field, text) {
 async function waitForUserTurn(prompt, previousTurnCount, timeoutMs = 30000) {
   const wanted = normalized(prompt);
   const deadline = Date.now() + timeoutMs;
+  let clearedAt = 0;
   while (Date.now() < deadline) {
     for (const turn of userTurns()) {
       if (normalized(turn.text).includes(wanted)) return turn;
     }
-    if (userTurnCount() > previousTurnCount && !composerText(composer()).includes(wanted)) {
+    const currentComposerText = composerText(composer());
+    if (userTurnCount() > previousTurnCount && !currentComposerText.includes(wanted)) {
       return { text: wanted, id: '' };
+    }
+    if (!currentComposerText.includes(wanted)) {
+      if (isGenerating()) return { text: wanted, id: '' };
+      if (!clearedAt) clearedAt = Date.now();
+      if (Date.now() - clearedAt >= 1000) return { text: wanted, id: '' };
+    } else {
+      clearedAt = 0;
     }
     await sleep(250);
   }
