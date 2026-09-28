@@ -326,6 +326,7 @@ async function rotateActiveThread(childId) {
   tab = await putTabInFamilyGroup(tab.id);
   await chrome.tabs.update(tab.id, { url: `https://chatgpt.com/g/${projectId}/project` });
   await waitForProjectTab(tab.id, projectId, 30000);
+  await familyWorkspace.foldGroup();
   const nextThreadUrls = { ...current.threadUrls };
   delete nextThreadUrls[childId];
   await chrome.storage.local.set({ threadUrls: nextThreadUrls });
