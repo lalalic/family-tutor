@@ -132,7 +132,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     const protectedResource=await metadata.json();
     assert.equal(protectedResource.resource,'https://family-tutor.qili2.com/mcp');
     assert.deepEqual(protectedResource.authorization_servers,['https://family-tutor.qili2.com']);
-    assert.deepEqual(protectedResource.scopes_supported,['tutor']);
+    assert.deepEqual(protectedResource.scopes_supported,['tutor','offline_access']);
 
     const authMetadata=await fetch(`${bridge.endpoint()}/.well-known/oauth-authorization-server`);
     assert.equal(authMetadata.status,200);
@@ -140,7 +140,8 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     assert.equal(authDocument.authorization_endpoint,'https://family-tutor.qili2.com/oauth/authorize');
     assert.equal(authDocument.token_endpoint,'https://family-tutor.qili2.com/oauth/token');
     assert.deepEqual(authDocument.code_challenge_methods_supported,['S256']);
-    assert.equal(authDocument.token_endpoint_auth_methods_supported.includes('client_secret_post'),true);
+    assert.equal(authDocument.token_endpoint_auth_methods_supported.includes('none'),true);
+    assert.equal(authDocument.scopes_supported.includes('offline_access'),true);
 
     const unauthenticated=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{}})});
     assert.equal(unauthenticated.status,401);
@@ -153,7 +154,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     authorize.searchParams.set('response_type','code');
     authorize.searchParams.set('client_id','family-tutor-chatgpt');
     authorize.searchParams.set('redirect_uri',redirectUri);
-    authorize.searchParams.set('scope','tutor');
+    authorize.searchParams.set('scope','tutor offline_access');
     authorize.searchParams.set('resource','https://family-tutor.qili2.com/mcp');
     authorize.searchParams.set('state','state-1');
     authorize.searchParams.set('code_challenge',challenge);
@@ -166,20 +167,19 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     const code=callback.searchParams.get('code');
     assert.ok(code);
 
-    const secret=fs.readFileSync(path.join(root,'.browser-bridge','oauth-client-secret'),'utf8').trim();
     const form=new URLSearchParams({
-      grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:'family-tutor-chatgpt',client_secret:secret,
+      grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:'family-tutor-chatgpt',
       code_verifier:verifier,resource:'https://family-tutor.qili2.com/mcp',
     });
     const tokenResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form});
     assert.equal(tokenResponse.status,200);
     const token=await tokenResponse.json();
     assert.equal(token.token_type,'Bearer');
-    assert.equal(token.scope,'tutor');
+    assert.equal(token.scope,'tutor offline_access');
     assert.ok(token.access_token.startsWith('ft1.'));
     assert.ok(token.refresh_token.startsWith('ftr1.'));
 
-    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:token.refresh_token,client_id:'family-tutor-chatgpt',client_secret:secret});
+    const refreshForm=new URLSearchParams({grant_type:'refresh_token',refresh_token:token.refresh_token,client_id:'family-tutor-chatgpt'});
     const refreshedResponse=await fetch(`${bridge.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
     assert.equal(refreshedResponse.status,200);
     const refreshed=await refreshedResponse.json();
