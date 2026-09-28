@@ -246,6 +246,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (message?.type !== 'turn') return;
+  respond({ accepted: true, version: chrome.runtime.getManifest().version });
   submitTurn(message).catch((error) => chrome.runtime.sendMessage({
     type: 'turn.error',
     childId: message.childId,

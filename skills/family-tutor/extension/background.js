@@ -339,7 +339,8 @@ async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
   const tab = projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
   if (!Number.isInteger(tab?.id)) return false;
   try {
-    await chrome.tabs.sendMessage(tab.id, turn);
+    const response = await chrome.tabs.sendMessage(tab.id, turn);
+    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
     return true;
   } catch {
     await chrome.tabs.reload(tab.id).catch(() => {});
@@ -392,7 +393,8 @@ async function handleTurn(raw) {
     }
 
     try {
-      await chrome.tabs.sendMessage(tab.id, turn);
+      const response = await chrome.tabs.sendMessage(tab.id, turn);
+      if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
       return;
     } catch (error) {
       lastError = error;
