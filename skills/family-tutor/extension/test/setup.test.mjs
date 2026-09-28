@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.18');
+  assert.equal(manifest.version,'2.6.19');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -34,6 +34,7 @@ test('turn delivery uses an existing project tab before workspace reconciliation
   const reconcile=source.indexOf('await reconcileFamilyTabs({}, { allowCreate: false });',direct);
   assert.ok(direct>=0);
   assert.ok(reconcile>direct);
+  assert.doesNotMatch(source.slice(source.indexOf('async function deliverToExistingProjectTab'),source.indexOf('async function handleTurn')),/status === 'complete'/);
 });
 
 test('background redeems claim without exposing a family or guild identifier to the page',()=>{

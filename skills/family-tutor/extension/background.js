@@ -334,7 +334,7 @@ async function rotateActiveThread(childId) {
 
 async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
   const projectTabs = sortTabs((await allChatGptTabs()).filter(
-    (tab) => tab.status === 'complete' && projectIdFromChatGptUrl(tab.url) === projectId,
+    (tab) => projectIdFromChatGptUrl(tab.url) === projectId,
   ));
   const tab = projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
   if (!Number.isInteger(tab?.id)) return false;
