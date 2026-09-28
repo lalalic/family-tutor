@@ -2,6 +2,17 @@ let activeCorrelationId = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+
+function promptTextMatches(observed, expected) {
+  const observedText = normalized(observed);
+  const expectedText = normalized(expected);
+  if (observedText.includes(expectedText)) return true;
+  if (!expectedText) return !observedText;
+  const span = Math.min(256, Math.max(48, Math.floor(expectedText.length / 8)));
+  return observedText.length >= Math.floor(expectedText.length * 0.9)
+    && observedText.includes(expectedText.slice(0, span))
+    && observedText.includes(expectedText.slice(-span));
+}
 const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
@@ -103,28 +114,27 @@ function fillComposer(field, text) {
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 }
 
-async function waitForUserTurn(prompt, previousTurnCount, timeoutMs = 30000) {
-  const wanted = normalized(prompt);
+async function waitForUserTurn(prompt, previousTurnCount, previousUserTurnCount, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
-  let clearedAt = 0;
+  let clearedPolls = 0;
   while (Date.now() < deadline) {
-    for (const turn of userTurns()) {
-      if (normalized(turn.text).includes(wanted)) return turn;
+    const turns = userTurns();
+    for (const turn of turns.slice(previousUserTurnCount)) {
+      if (promptTextMatches(turn.text, prompt)) return turn;
     }
     const currentComposerText = composerText(composer());
-    if (userTurnCount() > previousTurnCount && !currentComposerText.includes(wanted)) {
-      return { text: wanted, id: '' };
+    if (userTurnCount() > previousTurnCount && !promptTextMatches(currentComposerText, prompt)) {
+      return { text: normalized(prompt), id: '' };
     }
-    if (!currentComposerText.includes(wanted)) {
-      if (isGenerating()) return { text: wanted, id: '' };
-      if (!clearedAt) clearedAt = Date.now();
-      if (Date.now() - clearedAt >= 1000) return { text: wanted, id: '' };
+    if (!currentComposerText.trim()) {
+      clearedPolls += 1;
+      if (clearedPolls >= 2) return { text: normalized(prompt), id: '' };
     } else {
-      clearedAt = 0;
+      clearedPolls = 0;
     }
     await sleep(250);
   }
-  throw new Error('submitted prompt did not become a durable ChatGPT user turn');
+  throw new Error('submitted prompt was not accepted by ChatGPT');
 }
 
 
@@ -207,9 +217,10 @@ async function submitTurn(message) {
     for (const attachment of message.attachments || []) await uploadAttachment(attachment);
     const field = await waitFor(composer, 'ChatGPT composer');
     const previousTurnCount = userTurnCount();
+    const previousUserTurnCount = userTurns().length;
     fillComposer(field, message.prompt);
     await waitFor(
-      () => composerText(field).includes(normalized(message.prompt)),
+      () => promptTextMatches(composerText(field), message.prompt),
       'ChatGPT composer text',
       15000,
     );
@@ -219,11 +230,11 @@ async function submitTurn(message) {
     }, 'enabled ChatGPT send button');
     button.click();
     await sleep(500);
-    if (composerText(composer()).includes(normalized(message.prompt))) {
+    if (promptTextMatches(composerText(composer()), message.prompt)) {
       const form = button.closest('form');
       if (form?.requestSubmit) form.requestSubmit(button);
     }
-    const turn = await waitForUserTurn(message.prompt, previousTurnCount);
+    const turn = await waitForUserTurn(message.prompt, previousTurnCount, previousUserTurnCount);
     await chrome.runtime.sendMessage({
       type: 'turn.ack',
       childId: message.childId,

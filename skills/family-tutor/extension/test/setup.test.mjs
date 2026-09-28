@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.21');
+  assert.equal(manifest.version,'2.6.22');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -25,7 +25,12 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/requestSubmit/);
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/const previousTurnCount = userTurnCount\(\)/);
+  assert.match(content,/const previousUserTurnCount = userTurns\(\)\.length/);
+  assert.match(content,/turns\.slice\(previousUserTurnCount\)/);
   assert.match(content,/userTurnCount\(\) > previousTurnCount/);
+  assert.match(content,/clearedPolls >= 2/);
+  assert.match(content,/function promptTextMatches/);
+  assert.doesNotMatch(content,/if \(isGenerating\(\)\) return \{ text: wanted/);
   assert.match(content,/!inserted \|\| !composerText\(field\)\.includes\(normalized\(text\)\)/);
 });
 
