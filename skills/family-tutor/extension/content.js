@@ -96,7 +96,9 @@ function fillComposer(field, text) {
   selection?.addRange(range);
   const inserted = document.execCommand('insertText', false, text);
   selection?.removeAllRanges();
-  if (!inserted) field.textContent = text;
+  if (!inserted || !composerText(field).includes(normalized(text))) {
+    field.textContent = text;
+  }
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 }
 
