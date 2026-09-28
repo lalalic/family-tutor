@@ -246,11 +246,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (message?.type !== 'turn') return;
-  respond({ accepted: true, version: chrome.runtime.getManifest().version });
-  submitTurn(message).catch((error) => chrome.runtime.sendMessage({
-    type: 'turn.error',
-    childId: message.childId,
-    correlation: message.correlation,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  submitTurn(message).then(() => respond({
+    accepted: true,
+    version: chrome.runtime.getManifest().version,
+  })).catch(async (error) => {
+    const errorText = error instanceof Error ? error.message : String(error);
+    await chrome.runtime.sendMessage({
+      type: 'turn.error',
+      childId: message.childId,
+      correlation: message.correlation,
+      error: errorText,
+    });
+    respond({ accepted: false, version: chrome.runtime.getManifest().version, error: errorText });
+  });
+  return true;
 });

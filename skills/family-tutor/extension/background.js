@@ -332,6 +332,20 @@ async function rotateActiveThread(childId) {
   return tab;
 }
 
+async function sendTurnToTab(tab, turn) {
+  const [previousActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+  const shouldRestore = Number.isInteger(previousActive?.id) && previousActive.id !== tab.id;
+  if (shouldRestore) await chrome.tabs.update(tab.id, { active: true });
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, turn);
+    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
+    if (response?.accepted !== true) throw new Error(response?.error || 'Family Tutor content script rejected turn');
+    return response;
+  } finally {
+    if (shouldRestore) await chrome.tabs.update(previousActive.id, { active: true }).catch(() => {});
+  }
+}
+
 async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
   const projectTabs = sortTabs((await allChatGptTabs()).filter(
     (tab) => projectIdFromChatGptUrl(tab.url) === projectId,
@@ -339,15 +353,14 @@ async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
   const tab = projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
   if (!Number.isInteger(tab?.id)) return false;
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, turn);
-    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
+    await sendTurnToTab(tab, turn);
     return true;
   } catch {
     await chrome.tabs.reload(tab.id).catch(() => {});
     const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
     if (!ready) return false;
     try {
-      await chrome.tabs.sendMessage(tab.id, turn);
+      await sendTurnToTab(ready, turn);
       return true;
     } catch {
       return false;
@@ -393,8 +406,7 @@ async function handleTurn(raw) {
     }
 
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, turn);
-      if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
+      await sendTurnToTab(tab, turn);
       return;
     } catch (error) {
       lastError = error;
