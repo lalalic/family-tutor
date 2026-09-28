@@ -1,6 +1,6 @@
 import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
-import { FamilyWorkspaceManager, createRestoreDebouncer } from './workspace-manager.mjs';
+import { FamilyWorkspaceManager, createRestoreDebouncer, sortTabs } from './workspace-manager.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -326,10 +326,47 @@ async function rotateActiveThread(childId) {
   tab = await putTabInFamilyGroup(tab.id);
   await chrome.tabs.update(tab.id, { url: `https://chatgpt.com/g/${projectId}/project` });
   await waitForProjectTab(tab.id, projectId, 30000);
+  await familyWorkspace.foldGroup();
   const nextThreadUrls = { ...current.threadUrls };
   delete nextThreadUrls[childId];
   await chrome.storage.local.set({ threadUrls: nextThreadUrls });
   return tab;
+}
+
+async function sendTurnToTab(tab, turn) {
+  const [previousActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+  const shouldRestore = Number.isInteger(previousActive?.id) && previousActive.id !== tab.id;
+  if (shouldRestore) await chrome.tabs.update(tab.id, { active: true });
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, turn);
+    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
+    if (response?.accepted !== true) throw new Error(response?.error || 'Family Tutor content script rejected turn');
+    return response;
+  } finally {
+    if (shouldRestore) await chrome.tabs.update(previousActive.id, { active: true }).catch(() => {});
+  }
+}
+
+async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
+  const projectTabs = sortTabs((await allChatGptTabs()).filter(
+    (tab) => projectIdFromChatGptUrl(tab.url) === projectId,
+  ));
+  const tab = projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
+  if (!Number.isInteger(tab?.id)) return false;
+  try {
+    await sendTurnToTab(tab, turn);
+    return true;
+  } catch {
+    await chrome.tabs.reload(tab.id).catch(() => {});
+    const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
+    if (!ready) return false;
+    try {
+      await sendTurnToTab(ready, turn);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 async function handleTurn(raw) {
@@ -338,8 +375,10 @@ async function handleTurn(raw) {
   const projectId = bindings[turn.childId];
   if (!projectId) throw new Error(`no ChatGPT project is assigned for child ${turn.childId}`);
 
-  await reconcileFamilyTabs({}, { allowCreate: false });
   const savedThreadUrl = threadUrls[turn.childId];
+  if (await deliverToExistingProjectTab(turn, projectId, savedThreadUrl)) return;
+
+  await reconcileFamilyTabs({}, { allowCreate: false });
   if (savedThreadUrl) {
     const restored = await waitForExactThread(savedThreadUrl);
     if (restored) await reconcileFamilyTabs({ [turn.childId]: restored.id }, { allowCreate: false });
@@ -368,7 +407,7 @@ async function handleTurn(raw) {
     }
 
     try {
-      await chrome.tabs.sendMessage(tab.id, turn);
+      await sendTurnToTab(tab, turn);
       return;
     } catch (error) {
       lastError = error;

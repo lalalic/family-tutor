@@ -73,6 +73,12 @@ export class FamilyWorkspaceManager {
     return group;
   }
 
+  async foldGroup(group = null) {
+    group ||= await this.primaryGroup();
+    if (!Number.isInteger(group?.id)) return null;
+    return this.chrome.tabGroups.update(group.id, { title: this.groupTitle, collapsed: true });
+  }
+
   async putTab(tabId, group = null) {
     if (!Number.isInteger(tabId)) throw new Error('invalid ChatGPT tab');
     let tab = await this.chrome.tabs.get(tabId);
@@ -84,6 +90,7 @@ export class FamilyWorkspaceManager {
       tab = Array.isArray(moved) ? moved[0] : moved;
     }
     if (tab.groupId !== group.id) await this.chrome.tabs.group({ groupId: group.id, tabIds: [tab.id] });
+    await this.foldGroup(group);
     return this.chrome.tabs.get(tab.id);
   }
 
@@ -212,7 +219,7 @@ export class FamilyWorkspaceManager {
     }
     if (duplicateIds.length) await this.chrome.tabs.remove([...new Set(duplicateIds)]);
 
-    await this.chrome.tabGroups.update(group.id, { title: this.groupTitle, collapsed: true });
+    await this.foldGroup(group);
     return { childTabs, threadUrls: discoveredThreadUrls };
   }
 }

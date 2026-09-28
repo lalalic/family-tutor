@@ -213,7 +213,7 @@ export class BrowserBridge {
   #validRedirect(uri,clientId=this.oauthClientId){
     try{
       const url=new URL(uri);
-      if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');
+      if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector/oauth_callback'||url.pathname==='/connector_platform_oauth_redirect');
       if(clientId===this.extensionOAuthClientId) return url.protocol==='https:'&&this.extensionRedirectHosts.has(url.hostname)&&url.pathname.startsWith('/family-tutor');
       return false;
     }catch{return false;}
@@ -284,7 +284,7 @@ export class BrowserBridge {
     return {id:form.get('client_id')||'',secret:form.get('client_secret')||''};
   }
   #oauthClientValid(id,secret){
-    if(id===this.oauthClientId) return timingSafeEqualText(secret,this.oauthClientSecret);
+    if(id===this.oauthClientId) return !secret||timingSafeEqualText(secret,this.oauthClientSecret);
     if(id===this.extensionOAuthClientId) return !secret;
     return false;
   }
@@ -643,8 +643,8 @@ export class BrowserBridge {
 
   async #handle(req,res){
     const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);
-    if(req.method==='GET'&&url.pathname==='/.well-known/oauth-protected-resource') return json(res,200,{resource:this.#oauthResource(),authorization_servers:[this.publicOrigin],scopes_supported:['tutor'],resource_documentation:`${this.publicOrigin}/`});
-    if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic','none'],scopes_supported:['tutor','extension']});
+    if(req.method==='GET'&&url.pathname==='/.well-known/oauth-protected-resource') return json(res,200,{resource:this.#oauthResource(),authorization_servers:[this.publicOrigin],scopes_supported:['tutor','offline_access'],resource_documentation:`${this.publicOrigin}/`});
+    if(req.method==='GET'&&(url.pathname==='/.well-known/oauth-authorization-server'||url.pathname==='/.well-known/openid-configuration')) return json(res,200,{issuer:this.publicOrigin,authorization_endpoint:`${this.publicOrigin}/oauth/authorize`,token_endpoint:`${this.publicOrigin}/oauth/token`,response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post','client_secret_basic','none'],scopes_supported:['tutor','offline_access','extension']});
     if(req.method==='GET'&&url.pathname==='/oauth/authorize') return this.#oauthAuthorize(url,res);
     if(req.method==='POST'&&url.pathname==='/oauth/token') return this.#oauthToken(req,res);
     if(req.method==='GET'&&url.pathname==='/discord/install'){

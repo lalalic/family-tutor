@@ -9,12 +9,46 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.13');
+  assert.equal(manifest.version,'2.6.22');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
   assert.match(source,/family\.setup\.claim/);
   assert.match(source,/^\(\(\) =>/);
+});
+
+test('content script supports the current ChatGPT ProseMirror composer and submitted-turn marker',()=>{
+  const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
+  assert.match(content,/\[contenteditable="true"\]\[data-composer-markdown\]/);
+  assert.match(content,/button\[aria-label="Edit message"\]/);
+  assert.match(content,/data-user-message-bubble/);
+  assert.match(content,/requestSubmit/);
+  assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
+  assert.match(content,/const previousTurnCount = userTurnCount\(\)/);
+  assert.match(content,/const previousUserTurnCount = userTurns\(\)\.length/);
+  assert.match(content,/turns\.slice\(previousUserTurnCount\)/);
+  assert.match(content,/userTurnCount\(\) > previousTurnCount/);
+  assert.match(content,/clearedPolls >= 2/);
+  assert.match(content,/function promptTextMatches/);
+  assert.match(content,/field instanceof HTMLTextAreaElement\) return normalized\(field\.value\)/);
+  assert.doesNotMatch(content,/if \(isGenerating\(\)\) return \{ text: wanted/);
+  assert.match(content,/!inserted \|\| !composerText\(field\)\.includes\(normalized\(text\)\)/);
+});
+
+test('turn delivery uses an existing project tab before workspace reconciliation',()=>{
+  const source=fs.readFileSync(path.join(root,'background.js'),'utf8');
+  const direct=source.indexOf('if (await deliverToExistingProjectTab(turn, projectId, savedThreadUrl)) return;');
+  const reconcile=source.indexOf('await reconcileFamilyTabs({}, { allowCreate: false });',direct);
+  assert.ok(direct>=0);
+  assert.ok(reconcile>direct);
+  assert.doesNotMatch(source.slice(source.indexOf('async function deliverToExistingProjectTab'),source.indexOf('async function handleTurn')),/status === 'complete'/);
+  assert.match(source,/stale Family Tutor content script/);
+  assert.match(source,/async function sendTurnToTab/);
+  assert.match(source,/chrome\.tabs\.update\(tab\.id, \{ active: true \}\)/);
+  const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
+  assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
+  assert.match(content,/accepted: true/);
+  assert.match(content,/version: chrome\.runtime\.getManifest\(\)\.version/);
 });
 
 test('background redeems claim without exposing a family or guild identifier to the page',()=>{

@@ -2,19 +2,37 @@ let activeCorrelationId = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
-const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"]')]
+
+function promptTextMatches(observed, expected) {
+  const observedText = normalized(observed);
+  const expectedText = normalized(expected);
+  if (observedText.includes(expectedText)) return true;
+  if (!expectedText) return !observedText;
+  const span = Math.min(256, Math.max(48, Math.floor(expectedText.length / 8)));
+  return observedText.length >= Math.floor(expectedText.length * 0.9)
+    && observedText.includes(expectedText.slice(0, span))
+    && observedText.includes(expectedText.slice(-span));
+}
+const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
+const userTurnCount = () => Math.max(
+  document.querySelectorAll('[data-message-author-role="user"]').length,
+  document.querySelectorAll('[data-user-message-bubble="true"]').length,
+  document.querySelectorAll('button[aria-label="Edit message"]').length,
+);
 
 function composer() {
   return document.querySelector('#prompt-textarea')
+    || document.querySelector('[contenteditable="true"][data-composer-markdown]')
     || document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
     || document.querySelector('textarea[data-id="root"]')
     || document.querySelector('textarea[placeholder]');
 }
 
 function composerText(field) {
-  return normalized(field?.innerText ?? field?.textContent ?? field?.value);
+  if (field instanceof HTMLTextAreaElement) return normalized(field.value);
+  return normalized(field?.innerText || field?.textContent);
 }
 
 function fileInput() {
@@ -91,20 +109,33 @@ function fillComposer(field, text) {
   selection?.addRange(range);
   const inserted = document.execCommand('insertText', false, text);
   selection?.removeAllRanges();
-  if (!inserted) field.textContent = text;
+  if (!inserted || !composerText(field).includes(normalized(text))) {
+    field.textContent = text;
+  }
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 }
 
-async function waitForUserTurn(prompt, timeoutMs = 30000) {
-  const wanted = normalized(prompt);
+async function waitForUserTurn(prompt, previousTurnCount, previousUserTurnCount, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
+  let clearedPolls = 0;
   while (Date.now() < deadline) {
-    for (const turn of userTurns()) {
-      if (normalized(turn.text).includes(wanted)) return turn;
+    const turns = userTurns();
+    for (const turn of turns.slice(previousUserTurnCount)) {
+      if (promptTextMatches(turn.text, prompt)) return turn;
+    }
+    const currentComposerText = composerText(composer());
+    if (userTurnCount() > previousTurnCount && !promptTextMatches(currentComposerText, prompt)) {
+      return { text: normalized(prompt), id: '' };
+    }
+    if (!currentComposerText.trim()) {
+      clearedPolls += 1;
+      if (clearedPolls >= 2) return { text: normalized(prompt), id: '' };
+    } else {
+      clearedPolls = 0;
     }
     await sleep(250);
   }
-  throw new Error('submitted prompt did not become a durable ChatGPT user turn');
+  throw new Error('submitted prompt was not accepted by ChatGPT');
 }
 
 
@@ -186,9 +217,11 @@ async function submitTurn(message) {
     await waitForIdle();
     for (const attachment of message.attachments || []) await uploadAttachment(attachment);
     const field = await waitFor(composer, 'ChatGPT composer');
+    const previousTurnCount = userTurnCount();
+    const previousUserTurnCount = userTurns().length;
     fillComposer(field, message.prompt);
     await waitFor(
-      () => composerText(field).includes(normalized(message.prompt)),
+      () => promptTextMatches(composerText(field), message.prompt),
       'ChatGPT composer text',
       15000,
     );
@@ -197,7 +230,12 @@ async function submitTurn(message) {
       return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
     }, 'enabled ChatGPT send button');
     button.click();
-    const turn = await waitForUserTurn(message.prompt);
+    await sleep(500);
+    if (promptTextMatches(composerText(composer()), message.prompt)) {
+      const form = button.closest('form');
+      if (form?.requestSubmit) form.requestSubmit(button);
+    }
+    const turn = await waitForUserTurn(message.prompt, previousTurnCount, previousUserTurnCount);
     await chrome.runtime.sendMessage({
       type: 'turn.ack',
       childId: message.childId,
@@ -220,10 +258,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (message?.type !== 'turn') return;
-  submitTurn(message).catch((error) => chrome.runtime.sendMessage({
-    type: 'turn.error',
-    childId: message.childId,
-    correlation: message.correlation,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  submitTurn(message).then(() => respond({
+    accepted: true,
+    version: chrome.runtime.getManifest().version,
+  })).catch(async (error) => {
+    const errorText = error instanceof Error ? error.message : String(error);
+    await chrome.runtime.sendMessage({
+      type: 'turn.error',
+      childId: message.childId,
+      correlation: message.correlation,
+      error: errorText,
+    });
+    respond({ accepted: false, version: chrome.runtime.getManifest().version, error: errorText });
+  });
+  return true;
 });
