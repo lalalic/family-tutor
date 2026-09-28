@@ -30,6 +30,7 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/userTurnCount\(\) > previousTurnCount/);
   assert.match(content,/clearedPolls >= 2/);
   assert.match(content,/function promptTextMatches/);
+  assert.match(content,/field instanceof HTMLTextAreaElement\) return normalized\(field\.value\)/);
   assert.doesNotMatch(content,/if \(isGenerating\(\)\) return \{ text: wanted/);
   assert.match(content,/!inserted \|\| !composerText\(field\)\.includes\(normalized\(text\)\)/);
 });

@@ -31,7 +31,8 @@ function composer() {
 }
 
 function composerText(field) {
-  return normalized(field?.innerText ?? field?.textContent ?? field?.value);
+  if (field instanceof HTMLTextAreaElement) return normalized(field.value);
+  return normalized(field?.innerText || field?.textContent);
 }
 
 function fileInput() {
