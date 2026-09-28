@@ -9,12 +9,20 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.13');
+  assert.equal(manifest.version,'2.6.14');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
   assert.match(source,/family\.setup\.claim/);
   assert.match(source,/^\(\(\) =>/);
+});
+
+test('content script supports the current ChatGPT ProseMirror composer and submitted-turn marker',()=>{
+  const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
+  assert.match(content,/\[contenteditable="true"\]\[data-composer-markdown\]/);
+  assert.match(content,/button\[aria-label="Edit message"\]/);
+  assert.match(content,/const previousTurnCount = userTurnCount\(\)/);
+  assert.match(content,/userTurnCount\(\) > previousTurnCount/);
 });
 
 test('background redeems claim without exposing a family or guild identifier to the page',()=>{

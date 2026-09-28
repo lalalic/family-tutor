@@ -5,9 +5,14 @@ const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
+const userTurnCount = () => Math.max(
+  document.querySelectorAll('[data-message-author-role="user"]').length,
+  document.querySelectorAll('button[aria-label="Edit message"]').length,
+);
 
 function composer() {
   return document.querySelector('#prompt-textarea')
+    || document.querySelector('[contenteditable="true"][data-composer-markdown]')
     || document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
     || document.querySelector('textarea[data-id="root"]')
     || document.querySelector('textarea[placeholder]');
@@ -95,12 +100,15 @@ function fillComposer(field, text) {
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 }
 
-async function waitForUserTurn(prompt, timeoutMs = 30000) {
+async function waitForUserTurn(prompt, previousTurnCount, timeoutMs = 30000) {
   const wanted = normalized(prompt);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const turn of userTurns()) {
       if (normalized(turn.text).includes(wanted)) return turn;
+    }
+    if (userTurnCount() > previousTurnCount && !composerText(composer()).includes(wanted)) {
+      return { text: wanted, id: '' };
     }
     await sleep(250);
   }
@@ -186,6 +194,7 @@ async function submitTurn(message) {
     await waitForIdle();
     for (const attachment of message.attachments || []) await uploadAttachment(attachment);
     const field = await waitFor(composer, 'ChatGPT composer');
+    const previousTurnCount = userTurnCount();
     fillComposer(field, message.prompt);
     await waitFor(
       () => composerText(field).includes(normalized(message.prompt)),
@@ -197,7 +206,7 @@ async function submitTurn(message) {
       return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
     }, 'enabled ChatGPT send button');
     button.click();
-    const turn = await waitForUserTurn(message.prompt);
+    const turn = await waitForUserTurn(message.prompt, previousTurnCount);
     await chrome.runtime.sendMessage({
       type: 'turn.ack',
       childId: message.childId,
