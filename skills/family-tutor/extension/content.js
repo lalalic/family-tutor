@@ -209,6 +209,11 @@ async function submitTurn(message) {
       return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
     }, 'enabled ChatGPT send button');
     button.click();
+    await sleep(500);
+    if (composerText(composer()).includes(normalized(message.prompt))) {
+      const form = button.closest('form');
+      if (form?.requestSubmit) form.requestSubmit(button);
+    }
     const turn = await waitForUserTurn(message.prompt, previousTurnCount);
     await chrome.runtime.sendMessage({
       type: 'turn.ack',
