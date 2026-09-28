@@ -1,6 +1,6 @@
 import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from './protocol.mjs';
 import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
-import { FamilyWorkspaceManager, createRestoreDebouncer } from './workspace-manager.mjs';
+import { FamilyWorkspaceManager, createRestoreDebouncer, sortTabs } from './workspace-manager.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -332,14 +332,38 @@ async function rotateActiveThread(childId) {
   return tab;
 }
 
+async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl) {
+  const projectTabs = sortTabs((await allChatGptTabs()).filter(
+    (tab) => tab.status === 'complete' && projectIdFromChatGptUrl(tab.url) === projectId,
+  ));
+  const tab = projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
+  if (!Number.isInteger(tab?.id)) return false;
+  try {
+    await chrome.tabs.sendMessage(tab.id, turn);
+    return true;
+  } catch {
+    await chrome.tabs.reload(tab.id).catch(() => {});
+    const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
+    if (!ready) return false;
+    try {
+      await chrome.tabs.sendMessage(tab.id, turn);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 async function handleTurn(raw) {
   const turn = validateTurn(raw);
   let { bindings, threadUrls } = await settings();
   const projectId = bindings[turn.childId];
   if (!projectId) throw new Error(`no ChatGPT project is assigned for child ${turn.childId}`);
 
-  await reconcileFamilyTabs({}, { allowCreate: false });
   const savedThreadUrl = threadUrls[turn.childId];
+  if (await deliverToExistingProjectTab(turn, projectId, savedThreadUrl)) return;
+
+  await reconcileFamilyTabs({}, { allowCreate: false });
   if (savedThreadUrl) {
     const restored = await waitForExactThread(savedThreadUrl);
     if (restored) await reconcileFamilyTabs({ [turn.childId]: restored.id }, { allowCreate: false });
