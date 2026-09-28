@@ -149,7 +149,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
 
     const verifier=crypto.randomBytes(32).toString('base64url');
     const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
-    const redirectUri='https://chatgpt.com/connector/oauth/test-callback';
+    const redirectUri='https://chatgpt.com/connector/oauth_callback';
     const authorize=new URL(`${bridge.endpoint()}/oauth/authorize`);
     authorize.searchParams.set('response_type','code');
     authorize.searchParams.set('client_id','family-tutor-chatgpt');

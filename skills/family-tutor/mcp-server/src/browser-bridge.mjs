@@ -213,7 +213,7 @@ export class BrowserBridge {
   #validRedirect(uri,clientId=this.oauthClientId){
     try{
       const url=new URL(uri);
-      if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector_platform_oauth_redirect');
+      if(clientId===this.oauthClientId) return url.protocol==='https:'&&url.hostname==='chatgpt.com'&&(url.pathname.startsWith('/connector/oauth/')||url.pathname==='/connector/oauth_callback'||url.pathname==='/connector_platform_oauth_redirect');
       if(clientId===this.extensionOAuthClientId) return url.protocol==='https:'&&this.extensionRedirectHosts.has(url.hostname)&&url.pathname.startsWith('/family-tutor');
       return false;
     }catch{return false;}
