@@ -16,6 +16,21 @@ function promptTextMatches(observed, expected) {
 const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
+const semanticAssistantTurns = () => [...document.querySelectorAll('div')].filter((element) => {
+  const text = String(element.innerText || '').trim();
+  if (!text.startsWith('ChatGPT said:')) return false;
+  return ![...element.querySelectorAll('div')].some((descendant) => (
+    descendant !== element && String(descendant.innerText || '').trim().startsWith('ChatGPT said:')
+  ));
+});
+const assistantTurns = () => {
+  const roleTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  return roleTurns.length ? roleTurns : semanticAssistantTurns();
+};
+const assistantTurnCount = () => assistantTurns().length;
+const assistantText = (element) => normalized(
+  String(element?.innerText || element?.textContent || '').replace(/^ChatGPT said:\s*/i, ''),
+);
 const userTurnCount = () => Math.max(
   document.querySelectorAll('[data-message-author-role="user"]').length,
   document.querySelectorAll('[data-user-message-bubble="true"]').length,
@@ -209,6 +224,45 @@ async function ensureProject(projectName) {
   throw new Error(`Project ${name} was not created. Finish it in ChatGPT, then run Setup for me again.`);
 }
 
+
+async function reportTurnStatus(message, stage, error = null) {
+  await chrome.runtime.sendMessage({
+    type: 'turn.status', childId: message.childId, correlation: message.correlation, stage,
+    ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+  }).catch(() => {});
+}
+
+async function watchResponseComplete(message, previousAssistantCount, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  let stablePolls = 0;
+  while (Date.now() < deadline) {
+    if (assistantTurnCount() > previousAssistantCount && !isGenerating()) {
+      stablePolls += 1;
+      if (stablePolls >= 2) {
+        const created = assistantTurns().slice(previousAssistantCount);
+        const text = assistantText(created.at(-1));
+        await chrome.runtime.sendMessage({ type: 'turn.response_complete', childId: message.childId, correlation: message.correlation, text }).catch(() => {});
+        return;
+      }
+    } else stablePolls = 0;
+    await sleep(500);
+  }
+}
+
+async function submitDeliveryReminder(message) {
+  const correlationId = String(message.correlation?.correlationId || '').trim();
+  if (!correlationId) throw new Error('delivery reminder correlation id is required');
+  await waitForIdle();
+  const field = await waitFor(composer, 'ChatGPT composer');
+  const reminder = `<FAMILY_TUTOR_DELIVERY_REMINDER>\n${JSON.stringify({ correlationId })}\n</FAMILY_TUTOR_DELIVERY_REMINDER>\nYour previous answer is complete but has not been delivered. Call reply_to_discord now with this correlationId, the already-completed answer, and final=true. Do not answer only in the ChatGPT page.`;
+  fillComposer(field, reminder);
+  const button = await waitFor(() => {
+    const candidate = sendButton();
+    return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
+  }, 'enabled ChatGPT send button');
+  button.click();
+}
+
 async function submitTurn(message) {
   const correlationId = message.correlation.correlationId;
   if (activeCorrelationId) throw new Error(`tab already processing turn ${activeCorrelationId}`);
@@ -219,6 +273,8 @@ async function submitTurn(message) {
     const field = await waitFor(composer, 'ChatGPT composer');
     const previousTurnCount = userTurnCount();
     const previousUserTurnCount = userTurns().length;
+    const previousAssistantCount = assistantTurnCount();
+    await reportTurnStatus(message, 'tab_ready');
     fillComposer(field, message.prompt);
     await waitFor(
       () => promptTextMatches(composerText(field), message.prompt),
@@ -230,18 +286,21 @@ async function submitTurn(message) {
       return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
     }, 'enabled ChatGPT send button');
     button.click();
+    await reportTurnStatus(message, 'prompt_submitted');
     await sleep(500);
     if (promptTextMatches(composerText(composer()), message.prompt)) {
       const form = button.closest('form');
       if (form?.requestSubmit) form.requestSubmit(button);
     }
     const turn = await waitForUserTurn(message.prompt, previousTurnCount, previousUserTurnCount);
+    await reportTurnStatus(message, 'prompt_acked');
     await chrome.runtime.sendMessage({
       type: 'turn.ack',
       childId: message.childId,
       correlation: message.correlation,
       threadUrl: location.href,
     });
+    watchResponseComplete(message, previousAssistantCount).catch(() => {});
     return turn;
   } finally {
     activeCorrelationId = null;
@@ -255,6 +314,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message?.type === 'setup.project.instructions') {
     applyProjectInstructions(message.instructions).then((result) => respond({ ok: true, ...result })).catch((error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+  if (message?.type === 'turn.delivery.required') {
+    submitDeliveryReminder(message).then(() => respond({ accepted: true, version: chrome.runtime.getManifest().version })).catch((error) => respond({ accepted: false, version: chrome.runtime.getManifest().version, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type !== 'turn') return;

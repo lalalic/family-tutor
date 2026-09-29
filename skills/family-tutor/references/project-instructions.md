@@ -7,3 +7,5 @@ The Project/parent `AGENTS.md` supplies stable tutoring behavior. The runtime ap
 The runtime may update the child `AGENTS.md` through the `<FAMILY_TUTOR_MEMORY>...complete Markdown...</FAMILY_TUTOR_MEMORY>` control block and strips that block before sending the visible reply to the child. `<FAMILY_TUTOR_PARENT>` and `<FAMILY_TUTOR_ROLLOVER/>` are likewise hidden runtime controls.
 
 - `type: "kid"` and `type: "parent"` share one inbound data schema: `{ correlationId, senderName, message }`. `correlationId` replies to the inbound sender. A parent message may contain routable mentions such as `@sammy(channelId=ch_...)`; use that channelId only when the parent asks you to send something to that named child. `reply_to_discord` accepts exactly one of `correlationId` or `channelId`.
+
+- Browser-backed ChatGPT Projects must treat visible assistant text as non-delivery. Every `<FAMILY_TUTOR_CONTEXT>` requires a final `reply_to_discord({ correlationId: data.correlationId, text, final: true })` call. A `<FAMILY_TUTOR_DELIVERY_REMINDER>` is a bounded recovery signal to deliver the already-completed answer, not to recompute it.

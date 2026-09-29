@@ -678,3 +678,58 @@ test('e2e id matrix routes inbound correlations and explicit channel targets',as
     fs.rmSync(root,{recursive:true,force:true});
   }
 });
+
+test('completed browser response falls back to correlated final text without duplicate delivery',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-delivery-watchdog-'));
+  const replies=[];
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async value=>replies.push(value),deliveryGraceMs:5,deliveryRetryMs:1000,turnTimeoutMs:2000}).start();
+  let socket;
+  try{
+    const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
+    socket=new WebSocket(`${bridge.websocketEndpoint()}?token=${token}`);
+    const messages=[]; socket.on('message',data=>messages.push(JSON.parse(data.toString())));
+    await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+    socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'9.9.9'}));
+    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"hello"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const deadline=Date.now()+1000; let turn;
+    while(Date.now()<deadline&&!turn){turn=messages.find(value=>value.type==='turn');if(!turn)await new Promise(r=>setTimeout(r,5));}
+    assert.ok(turn);
+    socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:turn.correlation,threadUrl:'https://chatgpt.com/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-kid/c/thread-one'}));
+    socket.send(JSON.stringify({type:'turn.response_complete',childId:'kid1',correlation:turn.correlation,text:'delivered answer'}));
+    const ackDeadline=Date.now()+500; let ack;
+    while(Date.now()<ackDeadline&&!ack){ack=messages.find(value=>value.type==='turn.response_complete.ack'&&value.correlation?.correlationId===turn.correlation.correlationId);if(!ack)await new Promise(r=>setTimeout(r,5));}
+    assert.ok(ack);
+    assert.deepEqual(await turnPromise,{ok:true,childId:'kid1'});
+    const status=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
+    assert.deepEqual(status.inFlight,[]);
+    assert.equal(status.turnStatus.kid1.stage,'delivered');
+    assert.equal(replies.length,1);
+    assert.equal(replies[0].text,'delivered answer');
+  }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('missing reply tool fails explicitly after one reminder and releases the child queue',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-delivery-missing-'));
+  const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{},deliveryGraceMs:5,deliveryRetryMs:15,turnTimeoutMs:1000}).start();
+  let socket;
+  try{
+    const token=fs.readFileSync(path.join(root,'.browser-bridge','token'),'utf8').trim();
+    socket=new WebSocket(`${bridge.websocketEndpoint()}?token=${token}`);
+    const messages=[]; socket.on('message',data=>messages.push(JSON.parse(data.toString())));
+    await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+    socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'9.9.9'}));
+    const first=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"first"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const firstDeadline=Date.now()+1000; let turn;
+    while(Date.now()<firstDeadline&&!turn){turn=messages.find(value=>value.type==='turn');if(!turn)await new Promise(r=>setTimeout(r,5));}
+    assert.ok(turn);
+    const second=await bridge.enqueue({childId:'kid1',text:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"second"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m2'}});
+    socket.send(JSON.stringify({type:'turn.response_complete',childId:'kid1',correlation:turn.correlation}));
+    await assert.rejects(first,/reply_tool_not_called/);
+    const nextDeadline=Date.now()+500; let next;
+    while(Date.now()<nextDeadline&&!next){next=messages.find(value=>value.type==='turn'&&value.correlation.correlationId===second.correlationId);if(!next)await new Promise(r=>setTimeout(r,5));}
+    assert.ok(next);
+    const status=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
+    assert.equal(status.turnStatus.kid1.correlationId,second.correlationId);
+    await bridge.reply(second.correlationId,'second answer');
+  }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
