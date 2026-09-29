@@ -16,8 +16,21 @@ function promptTextMatches(observed, expected) {
 const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
-const assistantTurns = () => [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+const semanticAssistantTurns = () => [...document.querySelectorAll('div')].filter((element) => {
+  const text = String(element.innerText || '').trim();
+  if (!text.startsWith('ChatGPT said:')) return false;
+  return ![...element.querySelectorAll('div')].some((descendant) => (
+    descendant !== element && String(descendant.innerText || '').trim().startsWith('ChatGPT said:')
+  ));
+});
+const assistantTurns = () => {
+  const roleTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  return roleTurns.length ? roleTurns : semanticAssistantTurns();
+};
 const assistantTurnCount = () => assistantTurns().length;
+const assistantText = (element) => normalized(
+  String(element?.innerText || element?.textContent || '').replace(/^ChatGPT said:\s*/i, ''),
+);
 const userTurnCount = () => Math.max(
   document.querySelectorAll('[data-message-author-role="user"]').length,
   document.querySelectorAll('[data-user-message-bubble="true"]').length,
@@ -227,7 +240,7 @@ async function watchResponseComplete(message, previousAssistantCount, timeoutMs 
       stablePolls += 1;
       if (stablePolls >= 2) {
         const created = assistantTurns().slice(previousAssistantCount);
-        const text = normalized(created.at(-1)?.innerText || created.at(-1)?.textContent || '');
+        const text = assistantText(created.at(-1));
         await chrome.runtime.sendMessage({ type: 'turn.response_complete', childId: message.childId, correlation: message.correlation, text }).catch(() => {});
         return;
       }
