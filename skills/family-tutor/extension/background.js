@@ -17,7 +17,7 @@ let keepAliveTimer = null;
 let reconcileQueue = Promise.resolve();
 
 async function settings() {
-  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, threadIds: {}, turnStates: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '', bridgeRefreshToken: '' });
+  return chrome.storage.local.get({ bindings: {}, threadUrls: {}, threadIds: {}, turnStates: {}, pendingFinals: {}, health: defaultHealth(), bridgeUrl: DEFAULT_BRIDGE_URL, bridgeToken: '', bridgeRefreshToken: '' });
 }
 
 function defaultHealth() {
@@ -263,6 +263,41 @@ async function applyBootstrap() {
 
 function send(message) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+}
+
+
+async function queueFinalEvent(message) {
+  const childId = String(message.childId || '').trim();
+  const correlationId = String(message.correlation?.correlationId || '').trim();
+  if (!childId || !correlationId) return;
+  const current = await chrome.storage.local.get({ pendingFinals: {} });
+  const pendingFinals = {
+    ...current.pendingFinals,
+    [childId]: {
+      type: 'turn.response_complete',
+      childId,
+      correlation: { correlationId },
+      text: String(message.text || '').slice(0, 12000),
+    },
+  };
+  await chrome.storage.local.set({ pendingFinals });
+  send(pendingFinals[childId]);
+}
+
+async function ackFinalEvent(message) {
+  const childId = String(message.childId || '').trim();
+  const correlationId = String(message.correlation?.correlationId || '').trim();
+  if (!childId || !correlationId) return;
+  const current = await chrome.storage.local.get({ pendingFinals: {} });
+  if (current.pendingFinals?.[childId]?.correlation?.correlationId !== correlationId) return;
+  const pendingFinals = { ...current.pendingFinals };
+  delete pendingFinals[childId];
+  await chrome.storage.local.set({ pendingFinals });
+}
+
+async function replayPendingFinals() {
+  const current = await chrome.storage.local.get({ pendingFinals: {} });
+  for (const message of Object.values(current.pendingFinals || {})) send(message);
 }
 
 function requestKidAction(message, timeoutMs = 5000) {
@@ -529,7 +564,12 @@ async function connect() {
           await chrome.storage.local.set({ bindings: nextBindings, threadUrls: nextThreadUrls, threadIds: nextThreadIds });
         }
         await reportBindings();
+        await replayPendingFinals();
         await updateHealth({ state: HEALTH_STATES.CONNECTED, lastError: null, lastConnectedAt: new Date().toISOString(), recoveryCount: 0 });
+        return;
+      }
+      if (message.type === 'turn.response_complete.ack') {
+        await ackFinalEvent(message);
         return;
       }
       if (message.type === 'kid.result') {
@@ -620,7 +660,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const correlationId = String(message.correlation?.correlationId || '').trim();
     if (childId && correlationId) setTurnState(childId, correlationId, message.type === 'turn.response_complete' ? 'response_complete' : String(message.stage || 'unknown'), message.error).catch(() => {});
     else send(message);
-    if (message.type === 'turn.response_complete') send(message);
+    if (message.type === 'turn.response_complete') queueFinalEvent(message).catch(() => {});
     return;
   }
 

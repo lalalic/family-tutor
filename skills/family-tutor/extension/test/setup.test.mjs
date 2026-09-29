@@ -56,6 +56,9 @@ test('turn delivery prefers structured thread identity and has bounded stale-thr
   assert.match(content,/ChatGPT said:/);
   assert.match(content,/turn\.response_complete/);
   assert.match(content,/turn\.delivery\.required/);
+  assert.match(source,/pendingFinals/);
+  assert.match(source,/replayPendingFinals/);
+  assert.match(source,/turn\.response_complete\.ack/);
 });
 
 test('background redeems claim without exposing a family or guild identifier to the page',()=>{

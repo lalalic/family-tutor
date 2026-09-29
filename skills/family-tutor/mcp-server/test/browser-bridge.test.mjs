@@ -696,6 +696,9 @@ test('completed browser response falls back to correlated final text without dup
     assert.ok(turn);
     socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:turn.correlation,threadUrl:'https://chatgpt.com/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-kid/c/thread-one'}));
     socket.send(JSON.stringify({type:'turn.response_complete',childId:'kid1',correlation:turn.correlation,text:'delivered answer'}));
+    const ackDeadline=Date.now()+500; let ack;
+    while(Date.now()<ackDeadline&&!ack){ack=messages.find(value=>value.type==='turn.response_complete.ack'&&value.correlation?.correlationId===turn.correlation.correlationId);if(!ack)await new Promise(r=>setTimeout(r,5));}
+    assert.ok(ack);
     assert.deepEqual(await turnPromise,{ok:true,childId:'kid1'});
     const status=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
     assert.deepEqual(status.inFlight,[]);

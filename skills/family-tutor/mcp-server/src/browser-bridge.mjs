@@ -639,12 +639,14 @@ export class BrowserBridge {
       }
       if(message?.type==='turn.response_complete'){
         const id=String(message.correlation?.correlationId||'');
+        const childId=String(message.childId||'');
         const state=this.correlations.get(id);
-        if(state?.childId===String(message.childId||'')&&this.inFlight.get(state.childId)===id){
+        if(state?.childId===childId&&this.inFlight.get(state.childId)===id){
           state.responseText=String(message.text||'').trim().slice(0,12000);
           this.#setTurnStage(id,'response_complete');
           this.#scheduleDeliveryRecovery(id);
         }
+        if(childId&&id&&socket.readyState===WebSocket.OPEN) socket.send(JSON.stringify({type:'turn.response_complete.ack',childId,correlation:{correlationId:id}}));
         return;
       }
       if(message?.type==='extension.ping') return;
