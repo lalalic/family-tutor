@@ -2,6 +2,7 @@ let activeCorrelationId = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+const TURN_COMPOSER_WAIT_MS = 30000;
 
 function promptTextMatches(observed, expected) {
   const observedText = normalized(observed);
@@ -253,7 +254,7 @@ async function submitDeliveryReminder(message) {
   const correlationId = String(message.correlation?.correlationId || '').trim();
   if (!correlationId) throw new Error('delivery reminder correlation id is required');
   await waitForIdle();
-  const field = await waitFor(composer, 'ChatGPT composer');
+  const field = await waitFor(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS);
   const reminder = `<FAMILY_TUTOR_DELIVERY_REMINDER>\n${JSON.stringify({ correlationId })}\n</FAMILY_TUTOR_DELIVERY_REMINDER>\nYour previous answer is complete but has not been delivered. Call reply_to_discord now with this correlationId, the already-completed answer, and final=true. Do not answer only in the ChatGPT page.`;
   fillComposer(field, reminder);
   const button = await waitFor(() => {
@@ -270,7 +271,7 @@ async function submitTurn(message) {
   try {
     await waitForIdle();
     for (const attachment of message.attachments || []) await uploadAttachment(attachment);
-    const field = await waitFor(composer, 'ChatGPT composer');
+    const field = await waitFor(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS);
     const previousTurnCount = userTurnCount();
     const previousUserTurnCount = userTurns().length;
     const previousAssistantCount = assistantTurnCount();
