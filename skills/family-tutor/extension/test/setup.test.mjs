@@ -52,6 +52,8 @@ test('turn delivery prefers structured thread identity and has bounded stale-thr
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/watchResponseComplete/);
+  assert.match(content,/TURN_COMPOSER_WAIT_MS = 30000/);
+  assert.match(content,/waitFor\(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS\)/);
   assert.match(content,/semanticAssistantTurns/);
   assert.match(content,/ChatGPT said:/);
   assert.match(content,/turn\.response_complete/);
