@@ -54,7 +54,7 @@ function contextWithCorrelation(prompt,correlationId){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,getSetupStatus=null,finishSetup=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,discordOAuthExchange=null}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,getSetupStatus=null,finishSetup=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,deliveryGraceMs=8000,deliveryRetryMs=30000,discordOAuthExchange=null}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
@@ -73,6 +73,8 @@ export class BrowserBridge {
     this.finishSetup=finishSetup;
     this.ttlMs=ttlMs;
     this.turnTimeoutMs=turnTimeoutMs;
+    this.deliveryGraceMs=deliveryGraceMs;
+    this.deliveryRetryMs=deliveryRetryMs;
     this.configuredToken=token;
     this.queues=new Map();
     this.inFlight=new Map();
@@ -87,6 +89,7 @@ export class BrowserBridge {
     this.token=null;
     this.cleanupTimer=null;
     this.lastExtensionError=null;
+    this.lastTurnStatus=new Map();
     this.publicOrigin=String(process.env.FAMILY_TUTOR_PUBLIC_ORIGIN||'https://family-tutor.qili2.com').replace(/\/$/,'');
     this.oauthClientId=process.env.FAMILY_TUTOR_OAUTH_CLIENT_ID||'family-tutor-chatgpt';
     this.extensionOAuthClientId='family-tutor-extension';
@@ -376,7 +379,8 @@ export class BrowserBridge {
       throw error;
     }
     const turn={correlationId,childId,text,attachments:files,origin:{channelId:origin.channelId,messageId:origin.messageId,threadId:origin.threadId||null},createdAt:new Date().toISOString()};
-    this.correlations.set(correlationId,{childId,origin:turn.origin,blobDir,files,expiresAt,reply,resolve:null,reject:null,timer:null});
+    this.correlations.set(correlationId,{childId,origin:turn.origin,blobDir,files,expiresAt,reply,resolve:null,reject:null,timer:null,deliveryTimer:null,deliveryReminderSent:false,stage:'received',stageAt:new Date().toISOString()});
+    this.#setTurnStage(correlationId,'received');
     const queue=this.queues.get(childId)||[];
     queue.push(turn);
     this.queues.set(childId,queue);
@@ -427,11 +431,51 @@ export class BrowserBridge {
     return turn;
   }
 
+  #setTurnStage(correlationId,stage,error=null){
+    const state=this.correlations.get(correlationId);
+    if(!state) return false;
+    state.stage=stage;
+    state.stageAt=new Date().toISOString();
+    if(error) state.error=String(error?.message||error).slice(0,240);
+    else delete state.error;
+    this.lastTurnStatus.set(state.childId,{correlationId,stage,at:state.stageAt,...(state.error?{error:state.error}:{})});
+    return true;
+  }
+
+  #scheduleDeliveryRecovery(correlationId){
+    const state=this.correlations.get(correlationId);
+    if(!state||this.inFlight.get(state.childId)!==correlationId||state.deliveryReminderSent) return;
+    if(state.deliveryTimer) clearTimeout(state.deliveryTimer);
+    state.deliveryTimer=setTimeout(()=>{
+      const current=this.correlations.get(correlationId);
+      if(!current||this.inFlight.get(current.childId)!==correlationId||current.deliveryReminderSent) return;
+      const socket=this.childSockets.get(current.childId);
+      if(!socket||socket.readyState!==WebSocket.OPEN){
+        this.#setTurnStage(correlationId,'failed',new Error('extension unavailable for delivery recovery'));
+        this.fail(correlationId,new Error('extension unavailable for delivery recovery')).catch(()=>{});
+        return;
+      }
+      current.deliveryReminderSent=true;
+      this.#setTurnStage(correlationId,'delivery_reminder');
+      socket.send(JSON.stringify({type:'turn.delivery.required',childId:current.childId,correlation:{correlationId}}));
+      current.deliveryTimer=setTimeout(()=>{
+        if(this.correlations.has(correlationId)&&this.inFlight.get(current.childId)===correlationId){
+          this.#setTurnStage(correlationId,'failed',new Error('reply_tool_not_called'));
+          this.fail(correlationId,new Error('reply_tool_not_called')).catch(()=>{});
+        }
+      },this.deliveryRetryMs);
+      current.deliveryTimer.unref?.();
+    },this.deliveryGraceMs);
+    state.deliveryTimer.unref?.();
+  }
+
   async fail(correlationId,error=new Error('browser turn failed')){
     const state=this.correlations.get(correlationId);
     if(!state) return false;
+    this.#setTurnStage(correlationId,'failed',error);
     if(this.inFlight.get(state.childId)===correlationId) this.inFlight.delete(state.childId);
     if(state.timer) clearTimeout(state.timer);
+    if(state.deliveryTimer) clearTimeout(state.deliveryTimer);
     state.reject?.(error);
     await this.#deleteCorrelation(correlationId,state);
     this.#dispatch(state.childId);
@@ -448,11 +492,19 @@ export class BrowserBridge {
     if(this.inFlight.get(state.childId)!==correlationId) throw new Error('correlation is not active for child');
     const clean=String(text||'').trim();
     if(!clean) throw new Error('reply text is required');
-    if(state.reply) await state.reply(clean);
-    else if(this.replyToDiscord) await this.replyToDiscord({correlationId,childId:state.childId,origin:state.origin,text:clean});
-    else throw new Error('no Discord reply handler');
-    if(!final) return {ok:true,childId:state.childId,correlationId,final:false};
+    this.#setTurnStage(correlationId,'delivery_started');
+    try{
+      if(state.reply) await state.reply(clean);
+      else if(this.replyToDiscord) await this.replyToDiscord({correlationId,childId:state.childId,origin:state.origin,text:clean});
+      else throw new Error('no Discord reply handler');
+    }catch(error){
+      this.#setTurnStage(correlationId,'discord_send_failed',error);
+      throw error;
+    }
+    if(!final){ this.#setTurnStage(correlationId,'progress_delivered'); return {ok:true,childId:state.childId,correlationId,final:false}; }
+    this.#setTurnStage(correlationId,'delivered');
     if(state.timer) clearTimeout(state.timer);
+    if(state.deliveryTimer) clearTimeout(state.deliveryTimer);
     state.resolve?.({ok:true,childId:state.childId});
     this.inFlight.delete(state.childId);
     await this.#deleteCorrelation(correlationId,state);
@@ -473,6 +525,7 @@ export class BrowserBridge {
       if(state.expiresAt>now) continue;
       if(this.inFlight.get(state.childId)===id) this.inFlight.delete(state.childId);
       if(state.timer) clearTimeout(state.timer);
+      if(state.deliveryTimer) clearTimeout(state.deliveryTimer);
       state.reject?.(new Error('browser correlation expired'));
       await this.#deleteCorrelation(id,state);
       this.#dispatch(state.childId);
@@ -498,6 +551,7 @@ export class BrowserBridge {
     if(!turn) return;
     if(queue.length) this.queues.set(childId,queue); else this.queues.delete(childId);
     this.inFlight.set(childId,turn.correlationId);
+    this.#setTurnStage(turn.correlationId,'dispatched');
     socket.send(JSON.stringify(this.#extensionPayload(turn)));
   }
 
@@ -564,8 +618,26 @@ export class BrowserBridge {
       }
       if(message?.type==='turn.ack'){
         const childId=String(message.childId||'').trim();
+        const id=String(message.correlation?.correlationId||'');
         const threadUrl=String(message.threadUrl||'').trim();
         if(this.children.has(childId)&&threadUrl) this.threadAckHashes.set(childId,crypto.createHash('sha256').update(threadUrl).digest('hex'));
+        const state=this.correlations.get(id);
+        if(state?.childId===childId) this.#setTurnStage(id,'prompt_acked');
+        return;
+      }
+      if(message?.type==='turn.status'){
+        const id=String(message.correlation?.correlationId||'');
+        const state=this.correlations.get(id);
+        if(state?.childId===String(message.childId||'')) this.#setTurnStage(id,String(message.stage||'unknown'),message.error?new Error(String(message.error)):null);
+        return;
+      }
+      if(message?.type==='turn.response_complete'){
+        const id=String(message.correlation?.correlationId||'');
+        const state=this.correlations.get(id);
+        if(state?.childId===String(message.childId||'')&&this.inFlight.get(state.childId)===id){
+          this.#setTurnStage(id,'response_complete');
+          this.#scheduleDeliveryRecovery(id);
+        }
         return;
       }
       if(message?.type==='extension.ping') return;
@@ -590,6 +662,7 @@ export class BrowserBridge {
         const id=String(message.correlation?.correlationId||'');
         const state=this.correlations.get(id);
         this.lastExtensionError={childId:String(message.childId||''),error:String(message.error||'extension turn failed'),at:new Date().toISOString()};
+        if(state) this.#setTurnStage(id,'extension_failed',new Error(this.lastExtensionError.error));
         console.error('[family-tutor] extension turn failed',this.lastExtensionError);
         if(state&&state.childId===message.childId) this.fail(id,new Error(this.lastExtensionError.error)).catch(()=>{});
       }
@@ -775,7 +848,7 @@ export class BrowserBridge {
       return json(res,200,turn);
     }
     if(req.method==='GET'&&url.pathname==='/v1/status'){
-      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),threadAckHashes:Object.fromEntries([...this.threadAckHashes.entries()].sort()),lastExtensionError:this.lastExtensionError});
+      return json(res,200,{ok:true,boundChildren:[...this.childSockets.keys()].sort(),boundVersions:Object.fromEntries([...this.childVersions.entries()].sort()),inFlight:[...this.inFlight.keys()].sort(),turnStatus:Object.fromEntries([...this.lastTurnStatus.entries()].sort()),threadAckHashes:Object.fromEntries([...this.threadAckHashes.entries()].sort()),lastExtensionError:this.lastExtensionError});
     }
     if(req.method==='POST'&&/^\/v1\/turns\/[^/]+\/failed$/.test(url.pathname)){
       const id=decodeURIComponent(url.pathname.split('/')[3]);

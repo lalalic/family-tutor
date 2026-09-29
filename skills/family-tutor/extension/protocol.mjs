@@ -30,12 +30,41 @@ export function projectIdFromChatGptUrl(value) {
   }
 }
 
+export function threadIdFromChatGptUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !CHATGPT_HOSTS.has(url.hostname)) return null;
+    if (!projectIdFromChatGptUrl(url.toString())) return null;
+    return url.pathname.match(/\/c\/([^/]+)(?:\/|$)/)?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function projectRootUrl(projectId) {
+  const id = String(projectId || '').trim();
+  if (!/^g-p-[A-Za-z0-9_-]+$/.test(id)) throw new Error('valid ChatGPT project id is required');
+  return `https://chatgpt.com/g/${id}/project`;
+}
+
+export function canonicalThreadIds(bindings, threadIds = {}, threadUrls = {}) {
+  const canonical = canonicalBindings(bindings);
+  const next = {};
+  for (const childId of Object.keys(canonical)) {
+    const direct = String(threadIds?.[childId] || '').trim();
+    const fromUrl = threadIdFromChatGptUrl(threadUrls?.[childId]);
+    const value = direct || fromUrl;
+    if (value && /^[A-Za-z0-9_-]+$/.test(value)) next[childId] = value;
+  }
+  return Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 export function isChatGptProjectThreadUrl(value) {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || !CHATGPT_HOSTS.has(url.hostname)) return false;
     if (!projectIdFromChatGptUrl(url.toString())) return false;
-    return /\/project\/c\/[^/]+(?:\/|$)/.test(url.pathname);
+    return Boolean(threadIdFromChatGptUrl(url.toString()));
   } catch {
     return false;
   }

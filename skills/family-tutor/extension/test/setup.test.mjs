@@ -35,20 +35,25 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/!inserted \|\| !composerText\(field\)\.includes\(normalized\(text\)\)/);
 });
 
-test('turn delivery uses an existing project tab before workspace reconciliation',()=>{
+test('turn delivery prefers structured thread identity and has bounded stale-thread recovery',()=>{
   const source=fs.readFileSync(path.join(root,'background.js'),'utf8');
-  const direct=source.indexOf('if (await deliverToExistingProjectTab(turn, projectId, savedThreadUrl)) return;');
+  const direct=source.indexOf('const direct = await deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId);');
   const reconcile=source.indexOf('await reconcileFamilyTabs({}, { allowCreate: false });',direct);
   assert.ok(direct>=0);
   assert.ok(reconcile>direct);
-  assert.doesNotMatch(source.slice(source.indexOf('async function deliverToExistingProjectTab'),source.indexOf('async function handleTurn')),/status === 'complete'/);
+  assert.match(source,/threadIdFromChatGptUrl/);
+  assert.match(source,/findThreadTab\(projectId, current\.threadIds\[turn\.childId\]\)/);
+  assert.match(source,/stale_thread_recovery/);
+  assert.match(source,/recoverChildProjectRoot/);
+  assert.match(source,/delete threadUrls\[childId\]/);
+  assert.match(source,/delete threadIds\[childId\]/);
+  assert.match(source,/projectRootUrl\(projectId\)/);
   assert.match(source,/stale Family Tutor content script/);
-  assert.match(source,/async function sendTurnToTab/);
-  assert.match(source,/chrome\.tabs\.update\(tab\.id, \{ active: true \}\)/);
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
-  assert.match(content,/accepted: true/);
-  assert.match(content,/version: chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(content,/watchResponseComplete/);
+  assert.match(content,/turn\.response_complete/);
+  assert.match(content,/turn\.delivery\.required/);
 });
 
 test('background redeems claim without exposing a family or guild identifier to the page',()=>{
@@ -81,9 +86,10 @@ test('thread rollover clears the active thread and binds the next durable conver
   const background=fs.readFileSync(path.join(root,'background.js'),'utf8');
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
   assert.match(background,/async function rotateActiveThread\(childId\)/);
-  assert.match(background,/chrome\.tabs\.update\(tab\.id, \{ url: `https:\/\/chatgpt\.com\/g\/\$\{projectId\}\/project` \}\)/);
+  assert.match(background,/projectRootUrl\(projectId\)/);
   assert.match(background,/delete nextThreadUrls\[childId\]/);
-  assert.match(background,/chrome\.storage\.local\.set\(\{ threadUrls: nextThreadUrls \}\)/);
+  assert.match(background,/delete nextThreadIds\[childId\]/);
+  assert.match(background,/chrome\.storage\.local\.set\(\{ threadUrls: nextThreadUrls, threadIds: nextThreadIds \}\)/);
   assert.match(background,/type: 'thread\.rotated'/);
   assert.match(content,/type: 'turn\.ack'/);
   assert.match(content,/threadUrl: location\.href/);
@@ -132,6 +138,14 @@ test('auto setup applies a learner-specific profile to every kid project',()=>{
   assert.match(content,/async function ensureProject\(projectName\)/);
   assert.match(content,/Open ChatGPT and create a Project named/);
   assert.match(content,/applyProjectInstructions/);
+});
+
+test('Project bootstrap makes Discord tool delivery mandatory and non-duplicating',()=>{
+  const integration=fs.readFileSync(path.resolve(root,'../../../packages/integration/src/learner-profile-template.mjs'),'utf8');
+  assert.match(integration,/visible ChatGPT response is not delivery/);
+  assert.match(integration,/reply_to_discord/);
+  assert.match(integration,/final=true/);
+  assert.match(integration,/FAMILY_TUTOR_DELIVERY_REMINDER/);
 });
 
 test('setup status is the Discord source for available children',()=>{

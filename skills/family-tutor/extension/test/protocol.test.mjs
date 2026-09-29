@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bindChild, canonicalBindings, canonicalThreadUrls, isChatGptProjectThreadUrl, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, safeErrorMessage, validateTurn } from '../protocol.mjs';
+import { bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptProjectThreadUrl, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, validateTurn } from '../protocol.mjs';
 
 test('binding keeps one child per ChatGPT project and one project per child', () => {
   const bindings = bindChild({ alice: 'g-p-alpha', bob: 'g-p-beta' }, 'carol', 'g-p-beta');
@@ -46,10 +46,19 @@ test('thread bindings follow project reassignment and discard stale URLs', () =>
   }), { alice: `https://chatgpt.com/g/${beta}/project/c/new` });
 });
 
-test('only a conversation inside a ChatGPT Project counts as a linkable thread page', () => {
+test('thread identity survives a Project slug rename while project id stays authoritative', () => {
   const project='g-p-6aab2b72ef888191842f03b7a4bc70b6';
+  const oldUrl=`https://chatgpt.com/g/${project}-neo-family-tutor-maggie/c/thread-123`;
+  const newUrl=`https://chatgpt.com/g/${project}-maggie/c/thread-123`;
   assert.equal(isChatGptProjectThreadUrl(`https://chatgpt.com/g/${project}-family/project`), false);
   assert.equal(isChatGptProjectThreadUrl(`https://chatgpt.com/g/${project}-family/project/c/abc123`), true);
+  assert.equal(isChatGptProjectThreadUrl(oldUrl), true);
+  assert.equal(threadIdFromChatGptUrl(oldUrl),'thread-123');
+  assert.equal(threadIdFromChatGptUrl(newUrl),'thread-123');
+  assert.equal(projectIdFromChatGptUrl(oldUrl),project);
+  assert.equal(projectIdFromChatGptUrl(newUrl),project);
+  assert.deepEqual(canonicalThreadIds({maggie:project},{},{maggie:oldUrl}),{maggie:'thread-123'});
+  assert.equal(projectRootUrl(project),`https://chatgpt.com/g/${project}/project`);
   assert.equal(isChatGptProjectThreadUrl('https://chatgpt.com/c/abc123'), false);
 });
 
