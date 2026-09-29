@@ -679,7 +679,7 @@ test('e2e id matrix routes inbound correlations and explicit channel targets',as
   }
 });
 
-test('completed browser response gets one delivery reminder and final reply clears in-flight state',async()=>{
+test('completed browser response falls back to correlated final text without duplicate delivery',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-delivery-watchdog-'));
   const replies=[];
   const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async value=>replies.push(value),deliveryGraceMs:5,deliveryRetryMs:1000,turnTimeoutMs:2000}).start();
@@ -695,12 +695,7 @@ test('completed browser response gets one delivery reminder and final reply clea
     while(Date.now()<deadline&&!turn){turn=messages.find(value=>value.type==='turn');if(!turn)await new Promise(r=>setTimeout(r,5));}
     assert.ok(turn);
     socket.send(JSON.stringify({type:'turn.ack',childId:'kid1',correlation:turn.correlation,threadUrl:'https://chatgpt.com/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-kid/c/thread-one'}));
-    socket.send(JSON.stringify({type:'turn.response_complete',childId:'kid1',correlation:turn.correlation}));
-    let reminder; const reminderDeadline=Date.now()+500;
-    while(Date.now()<reminderDeadline&&!reminder){reminder=messages.find(value=>value.type==='turn.delivery.required');if(!reminder)await new Promise(r=>setTimeout(r,5));}
-    assert.ok(reminder);
-    assert.equal(reminder.correlation.correlationId,turn.correlation.correlationId);
-    await bridge.reply(turn.correlation.correlationId,'delivered answer');
+    socket.send(JSON.stringify({type:'turn.response_complete',childId:'kid1',correlation:turn.correlation,text:'delivered answer'}));
     assert.deepEqual(await turnPromise,{ok:true,childId:'kid1'});
     const status=await fetch(`${bridge.endpoint()}/v1/status`,{headers:{authorization:`Bearer ${token}`}}).then(r=>r.json());
     assert.deepEqual(status.inFlight,[]);

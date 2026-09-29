@@ -16,7 +16,8 @@ function promptTextMatches(observed, expected) {
 const userTurns = () => [...document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]')]
   .map((element) => ({ text: element.innerText?.trim() || '', id: element.getAttribute('data-message-id') || '' }))
   .filter((turn) => turn.text);
-const assistantTurnCount = () => document.querySelectorAll('[data-message-author-role="assistant"]').length;
+const assistantTurns = () => [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+const assistantTurnCount = () => assistantTurns().length;
 const userTurnCount = () => Math.max(
   document.querySelectorAll('[data-message-author-role="user"]').length,
   document.querySelectorAll('[data-user-message-bubble="true"]').length,
@@ -225,7 +226,9 @@ async function watchResponseComplete(message, previousAssistantCount, timeoutMs 
     if (assistantTurnCount() > previousAssistantCount && !isGenerating()) {
       stablePolls += 1;
       if (stablePolls >= 2) {
-        await chrome.runtime.sendMessage({ type: 'turn.response_complete', childId: message.childId, correlation: message.correlation }).catch(() => {});
+        const created = assistantTurns().slice(previousAssistantCount);
+        const text = normalized(created.at(-1)?.innerText || created.at(-1)?.textContent || '');
+        await chrome.runtime.sendMessage({ type: 'turn.response_complete', childId: message.childId, correlation: message.correlation, text }).catch(() => {});
         return;
       }
     } else stablePolls = 0;

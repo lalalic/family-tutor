@@ -449,6 +449,12 @@ export class BrowserBridge {
     state.deliveryTimer=setTimeout(()=>{
       const current=this.correlations.get(correlationId);
       if(!current||this.inFlight.get(current.childId)!==correlationId||current.deliveryReminderSent) return;
+      if(current.responseText){
+        current.deliveryReminderSent=true;
+        this.#setTurnStage(correlationId,'response_fallback_delivery');
+        this.reply(correlationId,current.responseText).catch(error=>this.fail(correlationId,error).catch(()=>{}));
+        return;
+      }
       const socket=this.childSockets.get(current.childId);
       if(!socket||socket.readyState!==WebSocket.OPEN){
         this.#setTurnStage(correlationId,'failed',new Error('extension unavailable for delivery recovery'));
@@ -635,6 +641,7 @@ export class BrowserBridge {
         const id=String(message.correlation?.correlationId||'');
         const state=this.correlations.get(id);
         if(state?.childId===String(message.childId||'')&&this.inFlight.get(state.childId)===id){
+          state.responseText=String(message.text||'').trim().slice(0,12000);
           this.#setTurnStage(id,'response_complete');
           this.#scheduleDeliveryRecovery(id);
         }
