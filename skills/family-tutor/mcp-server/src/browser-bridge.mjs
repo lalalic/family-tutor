@@ -439,6 +439,7 @@ export class BrowserBridge {
     if(error) state.error=String(error?.message||error).slice(0,240);
     else delete state.error;
     this.lastTurnStatus.set(state.childId,{correlationId,stage,at:state.stageAt,...(state.error?{error:state.error}:{})});
+    console.log('[family-tutor] browser turn stage',{childId:state.childId,stage,...(state.error?{error:state.error}:{})});
     return true;
   }
 
