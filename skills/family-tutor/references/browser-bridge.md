@@ -12,7 +12,7 @@ Family Tutor keeps Discord transport, privacy enforcement, correlation, and exac
 
 The extension stores only the user choice `childId -> ChatGPT Project ID`. It does not expose or persist a bridge token, local port, or tab id in its UI. The selected ChatGPT Project thread tab is moved into a dedicated Chrome tab group named `family-tutor`; the group contains exactly one managed tab per child, and browser turns are sent only to tabs in that group. On Chrome startup the extension reconstructs the group from the persisted bindings, reusing a matching Project tab when available and opening the Project only when necessary. Open a ChatGPT Project, open the extension popup, and assign that Project to a child. Project assignments survive tab and conversation changes because they use the stable `g-p-...` Project id.
 
-The extension connects to the fixed loopback browser bridge as implementation plumbing. On an incoming child turn it resolves an open tab for the assigned Project (or opens the Project), uploads transient image attachments, fills the ChatGPT composer, clicks Send, and acknowledges success only after the submitted user turn is observable.
+The extension connects to the fixed loopback browser bridge as implementation plumbing. On an incoming child turn it resolves the durable Project thread, navigates that thread with ChatGPT prompt URL prefill, uploads transient image attachments, verifies the composer, clicks Send, and acknowledges success only after the submitted user turn is observable. Direct DOM composer insertion remains only as a bounded compatibility fallback when URL prefill is not observed.
 
 ## MCP/server contract
 

@@ -276,12 +276,25 @@ async function submitTurn(message) {
     const previousUserTurnCount = userTurns().length;
     const previousAssistantCount = assistantTurnCount();
     await reportTurnStatus(message, 'tab_ready');
-    fillComposer(field, message.prompt);
-    await waitFor(
-      () => promptTextMatches(composerText(field), message.prompt),
-      'ChatGPT composer text',
-      15000,
-    );
+    let promptReady = false;
+    if (message.promptPrefilled === true) {
+      try {
+        await waitFor(
+          () => promptTextMatches(composerText(field), message.prompt),
+          'URL-prefilled ChatGPT composer text',
+          15000,
+        );
+        promptReady = true;
+      } catch {}
+    }
+    if (!promptReady) {
+      fillComposer(field, message.prompt);
+      await waitFor(
+        () => promptTextMatches(composerText(field), message.prompt),
+        'ChatGPT composer text',
+        15000,
+      );
+    }
     const button = await waitFor(() => {
       const candidate = sendButton();
       return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;

@@ -1,4 +1,4 @@
-import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, threadPromptUrl, validateTurn } from './protocol.mjs';
 import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
 import { FamilyWorkspaceManager, createRestoreDebouncer, sortTabs } from './workspace-manager.mjs';
 
@@ -428,9 +428,20 @@ async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl, save
   const tab = byId || projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
   if (!Number.isInteger(tab?.id)) return { delivered: false, tab: null, error: null };
   try {
+    let readyTab = tab;
+    let promptPrefilled = false;
+    const durableThreadUrl = savedThreadUrl && threadIdFromChatGptUrl(savedThreadUrl)
+      ? savedThreadUrl
+      : (threadIdFromChatGptUrl(tab.url) ? tab.url : null);
+    if (durableThreadUrl) {
+      await chrome.tabs.update(tab.id, { url: threadPromptUrl(durableThreadUrl, turn.prompt) });
+      readyTab = await waitForProjectTab(tab.id, projectId, 30000);
+      if (!readyTab) throw new Error('ChatGPT thread URL prefill did not become ready');
+      promptPrefilled = true;
+    }
     await setTurnState(turn.childId, turn.correlation.correlationId, 'tab_ready');
-    await sendTurnToTab(tab, turn);
-    return { delivered: true, tab, error: null };
+    await sendTurnToTab(readyTab, { ...turn, promptPrefilled });
+    return { delivered: true, tab: readyTab, error: null };
   } catch (firstError) {
     await chrome.tabs.reload(tab.id).catch(() => {});
     const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
