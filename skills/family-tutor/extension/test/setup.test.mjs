@@ -22,7 +22,9 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/\[contenteditable="true"\]\[data-composer-markdown\]/);
   assert.match(content,/button\[aria-label="Edit message"\]/);
   assert.match(content,/data-user-message-bubble/);
-  assert.match(content,/requestSubmit/);
+  assert.match(content,/async function fillLiveComposer/);
+  assert.match(content,/async function waitForEnabledSend/);
+  assert.doesNotMatch(content,/form\.requestSubmit/);
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/const previousTurnCount = userTurnCount\(\)/);
   assert.match(content,/const previousUserTurnCount = userTurns\(\)\.length/);
@@ -35,7 +37,7 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/!inserted \|\| !composerText\(field\)\.includes\(normalized\(text\)\)/);
 });
 
-test('turn delivery prefers structured thread identity and has bounded stale-thread recovery',()=>{
+test('turn delivery prefers structured thread identity and keeps existing threads warm',()=>{
   const source=fs.readFileSync(path.join(root,'background.js'),'utf8');
   const direct=source.indexOf('const direct = await deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId);');
   const reconcile=source.indexOf('await reconcileFamilyTabs({}, { allowCreate: false });',direct);
@@ -49,15 +51,12 @@ test('turn delivery prefers structured thread identity and has bounded stale-thr
   assert.match(source,/delete threadIds\[childId\]/);
   assert.match(source,/projectRootUrl\(projectId\)/);
   assert.match(source,/stale Family Tutor content script/);
-  assert.match(source,/threadPromptUrl\(durableThreadUrl, turn\.prompt\)/);
-  assert.match(source,/promptPrefilled/);
+  assert.match(source,/deliverWarmTurn/);
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/watchResponseComplete/);
   assert.match(content,/TURN_COMPOSER_WAIT_MS = 30000/);
   assert.match(content,/waitFor\(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS\)/);
-  assert.match(content,/message\.promptPrefilled === true/);
-  assert.match(content,/URL-prefilled ChatGPT composer text/);
   assert.match(content,/semanticAssistantTurns/);
   assert.match(content,/ChatGPT said:/);
   assert.match(content,/turn\.response_complete/);

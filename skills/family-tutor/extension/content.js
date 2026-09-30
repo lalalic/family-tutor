@@ -131,6 +131,44 @@ function fillComposer(field, text) {
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 }
 
+
+async function fillLiveComposer(text, timeoutMs = TURN_COMPOSER_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let lastField = null;
+  while (Date.now() < deadline) {
+    const field = composer();
+    if (!field) {
+      await sleep(150);
+      continue;
+    }
+    lastField = field;
+    fillComposer(field, text);
+    await sleep(100);
+    const live = composer();
+    if (live && promptTextMatches(composerText(live), text)) return live;
+  }
+  throw new Error(lastField
+    ? 'ChatGPT composer did not retain the requested prompt'
+    : 'ChatGPT composer not found');
+}
+
+async function waitForEnabledSend(prompt, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const field = composer();
+    const button = sendButton();
+    if (
+      field
+      && promptTextMatches(composerText(field), prompt)
+      && button
+      && !button.disabled
+      && button.getAttribute('aria-disabled') !== 'true'
+    ) return { field, button };
+    await sleep(150);
+  }
+  throw new Error('enabled ChatGPT send button not found');
+}
+
 async function waitForUserTurn(prompt, previousTurnCount, previousUserTurnCount, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   let clearedPolls = 0;
@@ -254,13 +292,9 @@ async function submitDeliveryReminder(message) {
   const correlationId = String(message.correlation?.correlationId || '').trim();
   if (!correlationId) throw new Error('delivery reminder correlation id is required');
   await waitForIdle();
-  const field = await waitFor(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS);
   const reminder = `<FAMILY_TUTOR_DELIVERY_REMINDER>\n${JSON.stringify({ correlationId })}\n</FAMILY_TUTOR_DELIVERY_REMINDER>\nYour previous answer is complete but has not been delivered. Call reply_to_discord now with this correlationId, the already-completed answer, and final=true. Do not answer only in the ChatGPT page.`;
-  fillComposer(field, reminder);
-  const button = await waitFor(() => {
-    const candidate = sendButton();
-    return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
-  }, 'enabled ChatGPT send button');
+  await fillLiveComposer(reminder);
+  const { button } = await waitForEnabledSend(reminder);
   button.click();
 }
 
@@ -271,41 +305,23 @@ async function submitTurn(message) {
   try {
     await waitForIdle();
     for (const attachment of message.attachments || []) await uploadAttachment(attachment);
-    const field = await waitFor(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS);
+    await waitFor(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS);
     const previousTurnCount = userTurnCount();
     const previousUserTurnCount = userTurns().length;
     const previousAssistantCount = assistantTurnCount();
     await reportTurnStatus(message, 'tab_ready');
-    let promptReady = false;
-    if (message.promptPrefilled === true) {
-      try {
-        await waitFor(
-          () => promptTextMatches(composerText(field), message.prompt),
-          'URL-prefilled ChatGPT composer text',
-          15000,
-        );
-        promptReady = true;
-      } catch {}
-    }
-    if (!promptReady) {
-      fillComposer(field, message.prompt);
-      await waitFor(
-        () => promptTextMatches(composerText(field), message.prompt),
-        'ChatGPT composer text',
-        15000,
-      );
-    }
-    const button = await waitFor(() => {
-      const candidate = sendButton();
-      return candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true' ? candidate : null;
-    }, 'enabled ChatGPT send button');
+
+    // The learner tab stays open across turns. ChatGPT may restore a draft or
+    // replace its composer node during hydration/commit, so each phase resolves
+    // and overwrites the current live composer instead of retaining a stale node.
+    await fillLiveComposer(message.prompt);
+    const { button } = await waitForEnabledSend(message.prompt);
+
     button.click();
     await reportTurnStatus(message, 'prompt_submitted');
-    await sleep(500);
-    if (promptTextMatches(composerText(composer()), message.prompt)) {
-      const form = button.closest('form');
-      if (form?.requestSubmit) form.requestSubmit(button);
-    }
+
+    // Exactly one Send click. A new user turn or stable composer clear proves
+    // acceptance; never perform a fallback submit/reload and risk a duplicate turn.
     const turn = await waitForUserTurn(message.prompt, previousTurnCount, previousUserTurnCount);
     await reportTurnStatus(message, 'prompt_acked');
     await chrome.runtime.sendMessage({

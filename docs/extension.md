@@ -105,3 +105,14 @@ During first-time setup, claiming the family session does not require Discord ch
 ## Chrome Web Store rollout
 
 The hosted service does not assume a single baked-in extension ID. Set `FAMILY_TUTOR_EXTENSION_IDS` to the comma-separated Chrome extension IDs accepted for setup/reconnect (for example, the Store ID plus a temporary pilot ID during migration). Set `FAMILY_TUTOR_EXTENSION_INSTALL_URL` to the Chrome Web Store listing URL once published; until then the setup hub falls back to the versioned self-hosted ZIP. These values change deployment configuration only and do not require another extension source release.
+
+## Warm ChatGPT thread runtime
+
+Family Tutor keeps one child-specific ChatGPT Project/thread tab open as a warm session instead of reopening or navigating the thread for each learner turn.
+
+- Normal turns are delivered to the existing background tab with `chrome.tabs.sendMessage`; the extension does not activate the tab or steal browser focus.
+- Existing ChatGPT threads are opened at their durable URL without `?prompt=`. ChatGPT can restore a saved composer draft during hydration, so URL prefill is not authoritative for persistent threads.
+- Before every turn, the content script resolves the current live composer, explicitly replaces any restored draft with the requested prompt, and re-resolves the composer while waiting for an enabled Send button.
+- Submission uses exactly one Send click. Acceptance is verified from a new user turn or a stably cleared composer; there is no fallback form submit that could duplicate the turn.
+- A normal turn-level failure does not reload or resubmit the warm thread because ChatGPT may already have accepted the message. Reload recovery is reserved for explicit extension transport/content-script failures.
+- The same child tab/thread is reused across turns until explicit thread rollover, stale-thread recovery, browser loss, or configuration changes require replacement.

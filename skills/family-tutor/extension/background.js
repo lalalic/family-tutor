@@ -1,6 +1,7 @@
-import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, threadPromptUrl, validateTurn } from './protocol.mjs';
+import { DEFAULT_BRIDGE_URL, HEALTH_STATES, bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, validateTurn } from './protocol.mjs';
 import { CHATGPT_DEVELOPER_MODE_URL, setupKidProjects } from './setup-automation.mjs';
 import { FamilyWorkspaceManager, createRestoreDebouncer, sortTabs } from './workspace-manager.mjs';
+import { deliverWarmTurn } from './warm-session.mjs';
 
 const BOOTSTRAP_URL = chrome.runtime.getURL('bootstrap.json');
 const GROUP_TITLE = 'family-tutor';
@@ -407,17 +408,16 @@ async function rotateActiveThread(childId) {
 }
 
 async function sendTurnToTab(tab, turn) {
-  const [previousActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
-  const shouldRestore = Number.isInteger(previousActive?.id) && previousActive.id !== tab.id;
-  if (shouldRestore) await chrome.tabs.update(tab.id, { active: true });
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, turn);
-    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
-    if (response?.accepted !== true) throw new Error(response?.error || 'Family Tutor content script rejected turn');
-    return response;
-  } finally {
-    if (shouldRestore) await chrome.tabs.update(previousActive.id, { active: true }).catch(() => {});
+  // A learner thread is a warm, long-lived background session. Content scripts
+  // can receive runtime messages without stealing focus from the family.
+  const response = await chrome.tabs.sendMessage(tab.id, turn);
+  if (response?.version !== chrome.runtime.getManifest().version) {
+    throw new Error('stale Family Tutor content script');
   }
+  if (response?.accepted !== true) {
+    throw new Error(response?.error || 'Family Tutor content script rejected turn');
+  }
+  return response;
 }
 
 async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId) {
@@ -427,32 +427,15 @@ async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl, save
   const byId = savedThreadId ? projectTabs.find((candidate) => threadIdFromChatGptUrl(candidate.url) === savedThreadId) : null;
   const tab = byId || projectTabs.find((candidate) => savedThreadUrl && candidate.url === savedThreadUrl) || projectTabs[0];
   if (!Number.isInteger(tab?.id)) return { delivered: false, tab: null, error: null };
-  try {
-    let readyTab = tab;
-    let promptPrefilled = false;
-    const durableThreadUrl = savedThreadUrl && threadIdFromChatGptUrl(savedThreadUrl)
-      ? savedThreadUrl
-      : (threadIdFromChatGptUrl(tab.url) ? tab.url : null);
-    if (durableThreadUrl) {
-      await chrome.tabs.update(tab.id, { url: threadPromptUrl(durableThreadUrl, turn.prompt) });
-      readyTab = await waitForProjectTab(tab.id, projectId, 30000);
-      if (!readyTab) throw new Error('ChatGPT thread URL prefill did not become ready');
-      promptPrefilled = true;
-    }
-    await setTurnState(turn.childId, turn.correlation.correlationId, 'tab_ready');
-    await sendTurnToTab(readyTab, { ...turn, promptPrefilled });
-    return { delivered: true, tab: readyTab, error: null };
-  } catch (firstError) {
-    await chrome.tabs.reload(tab.id).catch(() => {});
-    const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
-    if (!ready) return { delivered: false, tab, error: firstError };
-    try {
-      await sendTurnToTab(ready, turn);
-      return { delivered: true, tab: ready, error: null };
-    } catch (error) {
-      return { delivered: false, tab: ready, error };
-    }
-  }
+  await setTurnState(turn.childId, turn.correlation.correlationId, 'tab_ready');
+  return deliverWarmTurn({
+    tab,
+    turn,
+    sendTurn: sendTurnToTab,
+    reloadTab: (tabId) => chrome.tabs.reload(tabId),
+    waitReady: (tabId) => waitForProjectTab(tabId, projectId, 10000),
+  });
+
 }
 
 async function handleTurn(raw) {
@@ -467,6 +450,10 @@ async function handleTurn(raw) {
   const savedThreadId = current.threadIds[turn.childId] || threadIdFromChatGptUrl(savedThreadUrl);
   const direct = await deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId);
   if (direct.delivered) return;
+  if (direct.recoverable === false) {
+    await setTurnState(turn.childId, correlationId, 'failed', direct.error);
+    throw direct.error;
+  }
 
   if (savedThreadUrl || savedThreadId) {
     await setTurnState(turn.childId, correlationId, 'stale_thread_recovery', direct.error);
