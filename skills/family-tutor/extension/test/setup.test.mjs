@@ -22,7 +22,9 @@ test('content script supports the current ChatGPT ProseMirror composer and submi
   assert.match(content,/\[contenteditable="true"\]\[data-composer-markdown\]/);
   assert.match(content,/button\[aria-label="Edit message"\]/);
   assert.match(content,/data-user-message-bubble/);
-  assert.match(content,/requestSubmit/);
+  assert.match(content,/async function fillLiveComposer/);
+  assert.match(content,/async function waitForEnabledSend/);
+  assert.doesNotMatch(content,/form\.requestSubmit/);
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/const previousTurnCount = userTurnCount\(\)/);
   assert.match(content,/const previousUserTurnCount = userTurns\(\)\.length/);

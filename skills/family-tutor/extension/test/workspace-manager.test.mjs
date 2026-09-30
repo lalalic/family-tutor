@@ -178,3 +178,29 @@ test('restore debounce waits for the latest browser activity before reconciling'
   await pending.get(2)();
   assert.equal(runs, 1);
 });
+
+test('warm learner session reuses the same exact thread tab across repeated reconciles', async () => {
+  const project = 'g-p-11111111111111111111111111111111';
+  const threadUrl = `https://chatgpt.com/g/${project}/project/c/thread-warm`;
+  const { chrome, state } = fakeChrome({
+    groups: [{ id: 1, title: 'family-tutor', collapsed: true }],
+    tabs: [{ id: 10, groupId: 1, url: threadUrl, lastAccessed: 10 }],
+  });
+  const workspace = manager(chrome);
+
+  const first = await workspace.reconcile({
+    bindings: { sammy: project },
+    threadUrls: { sammy: threadUrl },
+  });
+  const second = await workspace.reconcile({
+    bindings: { sammy: project },
+    threadUrls: { sammy: threadUrl },
+    preferredTabs: first.childTabs,
+  });
+
+  assert.equal(first.childTabs.sammy, 10);
+  assert.equal(second.childTabs.sammy, 10);
+  assert.equal(state.createCount, 0);
+  assert.equal(state.tabs.size, 1);
+  assert.equal(state.tabs.get(10).url, threadUrl);
+});

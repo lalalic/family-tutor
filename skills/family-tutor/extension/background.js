@@ -406,18 +406,27 @@ async function rotateActiveThread(childId) {
   return tab;
 }
 
+function isWarmTabTransportError(error) {
+  const text = String(error?.message || error || '').toLowerCase();
+  return text.includes('stale family tutor content script')
+    || text.includes('receiving end does not exist')
+    || text.includes('could not establish connection')
+    || text.includes('message port closed')
+    || text.includes('the tab was closed')
+    || text.includes('no tab with id');
+}
+
 async function sendTurnToTab(tab, turn) {
-  const [previousActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
-  const shouldRestore = Number.isInteger(previousActive?.id) && previousActive.id !== tab.id;
-  if (shouldRestore) await chrome.tabs.update(tab.id, { active: true });
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, turn);
-    if (response?.version !== chrome.runtime.getManifest().version) throw new Error('stale Family Tutor content script');
-    if (response?.accepted !== true) throw new Error(response?.error || 'Family Tutor content script rejected turn');
-    return response;
-  } finally {
-    if (shouldRestore) await chrome.tabs.update(previousActive.id, { active: true }).catch(() => {});
+  // A learner thread is a warm, long-lived background session. Content scripts
+  // can receive runtime messages without stealing focus from the family.
+  const response = await chrome.tabs.sendMessage(tab.id, turn);
+  if (response?.version !== chrome.runtime.getManifest().version) {
+    throw new Error('stale Family Tutor content script');
   }
+  if (response?.accepted !== true) {
+    throw new Error(response?.error || 'Family Tutor content script rejected turn');
+  }
+  return response;
 }
 
 async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId) {
@@ -432,14 +441,20 @@ async function deliverToExistingProjectTab(turn, projectId, savedThreadUrl, save
     await sendTurnToTab(tab, turn);
     return { delivered: true, tab, error: null };
   } catch (firstError) {
+    // Do not blindly reload/resubmit a warm thread after a turn-level failure:
+    // the Send click may already have been accepted. Reload only when the
+    // extension transport/content script itself is definitely stale.
+    if (!isWarmTabTransportError(firstError)) {
+      return { delivered: false, tab, error: firstError, recoverable: false };
+    }
     await chrome.tabs.reload(tab.id).catch(() => {});
     const ready = await waitForProjectTab(tab.id, projectId, 10000).catch(() => null);
-    if (!ready) return { delivered: false, tab, error: firstError };
+    if (!ready) return { delivered: false, tab, error: firstError, recoverable: true };
     try {
       await sendTurnToTab(ready, turn);
-      return { delivered: true, tab: ready, error: null };
+      return { delivered: true, tab: ready, error: null, recoverable: true };
     } catch (error) {
-      return { delivered: false, tab: ready, error };
+      return { delivered: false, tab: ready, error, recoverable: isWarmTabTransportError(error) };
     }
   }
 }
@@ -456,6 +471,10 @@ async function handleTurn(raw) {
   const savedThreadId = current.threadIds[turn.childId] || threadIdFromChatGptUrl(savedThreadUrl);
   const direct = await deliverToExistingProjectTab(turn, projectId, savedThreadUrl, savedThreadId);
   if (direct.delivered) return;
+  if (direct.recoverable === false) {
+    await setTurnState(turn.childId, correlationId, 'failed', direct.error);
+    throw direct.error;
+  }
 
   if (savedThreadUrl || savedThreadId) {
     await setTurnState(turn.childId, correlationId, 'stale_thread_recovery', direct.error);
