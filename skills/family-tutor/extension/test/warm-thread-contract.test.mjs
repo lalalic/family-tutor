@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const background = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
 const content = readFileSync(new URL('../content.js', import.meta.url), 'utf8');
+const warmSession = readFileSync(new URL('../warm-session.mjs', import.meta.url), 'utf8');
 
 function functionBody(source, name, nextMarker) {
   const start = source.indexOf(`async function ${name}(`);
@@ -39,7 +40,8 @@ test('turn submission refreshes the live composer and performs exactly one Send 
 });
 
 test('turn-level failures do not trigger blind warm-thread reload and resubmit', () => {
-  assert.match(background, /isWarmTabTransportError/);
-  assert.match(background, /recoverable:\s*false/);
-  assert.match(background, /if \(!isWarmTabTransportError\(firstError\)\)/);
+  assert.match(background, /deliverWarmTurn/);
+  assert.match(warmSession, /isWarmTabTransportError/);
+  assert.match(warmSession, /recoverable:\s*false/);
+  assert.match(warmSession, /if \(!isWarmTabTransportError\(firstError\)\)/);
 });
