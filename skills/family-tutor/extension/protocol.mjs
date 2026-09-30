@@ -47,17 +47,6 @@ export function projectRootUrl(projectId) {
   return `https://chatgpt.com/g/${id}/project`;
 }
 
-export function threadPromptUrl(threadUrl, prompt) {
-  const url = new URL(String(threadUrl || ''));
-  if (url.protocol !== 'https:' || !CHATGPT_HOSTS.has(url.hostname) || !threadIdFromChatGptUrl(url.toString())) {
-    throw new Error('valid ChatGPT project thread URL is required');
-  }
-  url.searchParams.delete('temporary-chat');
-  url.searchParams.set('prompt', String(prompt || ''));
-  url.hash = '';
-  return url.toString();
-}
-
 export function canonicalThreadIds(bindings, threadIds = {}, threadUrls = {}) {
   const canonical = canonicalBindings(bindings);
   const next = {};

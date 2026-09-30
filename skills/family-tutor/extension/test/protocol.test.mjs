@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptProjectThreadUrl, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, threadPromptUrl, validateTurn } from '../protocol.mjs';
+import { bindChild, canonicalBindings, canonicalThreadIds, canonicalThreadUrls, isChatGptProjectThreadUrl, isChatGptUrl, normalizeBridgeUrl, projectIdFromChatGptUrl, projectRootUrl, safeErrorMessage, threadIdFromChatGptUrl, validateTurn } from '../protocol.mjs';
 
 test('binding keeps one child per ChatGPT project and one project per child', () => {
   const bindings = bindChild({ alice: 'g-p-alpha', bob: 'g-p-beta' }, 'carol', 'g-p-beta');
@@ -60,16 +60,6 @@ test('thread identity survives a Project slug rename while project id stays auth
   assert.deepEqual(canonicalThreadIds({maggie:project},{},{maggie:oldUrl}),{maggie:'thread-123'});
   assert.equal(projectRootUrl(project),`https://chatgpt.com/g/${project}/project`);
   assert.equal(isChatGptProjectThreadUrl('https://chatgpt.com/c/abc123'), false);
-});
-
-test('existing Project thread URL supports URL-first prompt prefill', () => {
-  const project='g-p-6aab2b72ef888191842f03b7a4bc70b6';
-  const thread='https://chatgpt.com/g/' + project + '-maggie/project/c/thread-123?foo=bar';
-  assert.equal(
-    threadPromptUrl(thread, 'hello world'),
-    'https://chatgpt.com/g/' + project + '-maggie/project/c/thread-123?foo=bar&prompt=hello+world',
-  );
-  assert.throws(() => threadPromptUrl('https://chatgpt.com/c/not-project', 'hello'), /project thread/);
 });
 
 test('bridge, tab, and project URLs stay on allowed hosts', () => {

@@ -25,7 +25,6 @@ test('warm thread delivery sends directly to the background tab without focus ch
 test('warm thread runtime does not navigate an existing thread for prompt delivery', () => {
   const body = functionBody(background, 'deliverToExistingProjectTab', '\nasync function handleTurn(');
   assert.doesNotMatch(body, /prompt=/);
-  assert.doesNotMatch(body, /threadPromptUrl/);
   assert.doesNotMatch(body, /chrome\.tabs\.update\([^\n]+url/);
 });
 
