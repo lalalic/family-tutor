@@ -9,7 +9,7 @@ const root=path.resolve(here,'..');
 
 test('setup page is wired to automatic family claim',()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-  assert.equal(manifest.version,'2.6.22');
+  assert.equal(manifest.version,'2.6.23');
   const setup=manifest.content_scripts.find(script=>script.matches?.includes('https://family-tutor.qili2.com/setup/*'));
   assert.deepEqual(setup?.js,['setup.js']);
   const source=fs.readFileSync(path.join(root,'setup.js'),'utf8');
@@ -49,11 +49,15 @@ test('turn delivery prefers structured thread identity and has bounded stale-thr
   assert.match(source,/delete threadIds\[childId\]/);
   assert.match(source,/projectRootUrl\(projectId\)/);
   assert.match(source,/stale Family Tutor content script/);
+  assert.match(source,/threadPromptUrl\(durableThreadUrl, turn\.prompt\)/);
+  assert.match(source,/promptPrefilled/);
   const content=fs.readFileSync(path.join(root,'content.js'),'utf8');
   assert.match(content,/submitTurn\(message\)\.then\(\(\) => respond/);
   assert.match(content,/watchResponseComplete/);
   assert.match(content,/TURN_COMPOSER_WAIT_MS = 30000/);
   assert.match(content,/waitFor\(composer, 'ChatGPT composer', TURN_COMPOSER_WAIT_MS\)/);
+  assert.match(content,/message\.promptPrefilled === true/);
+  assert.match(content,/URL-prefilled ChatGPT composer text/);
   assert.match(content,/semanticAssistantTurns/);
   assert.match(content,/ChatGPT said:/);
   assert.match(content,/turn\.response_complete/);
