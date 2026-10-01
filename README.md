@@ -95,10 +95,16 @@ node skills/family-tutor/scripts/doctor.mjs runs/family
 node skills/family-tutor/scripts/service.mjs start runs/family
 ```
 
+New private/local instances use NeoY Tutor Workspace by default. Bind each learner
+to an existing ChatGPT thread in **NeoY Setup → Tutor** before starting the
+orchestrator. The Family Tutor Chrome extension is not required for this local
+NeoY path. Existing browserBridge-based instances remain supported as a legacy
+migration path.
+
 Never commit real family configuration, learner details, transcripts, tokens,
-or runtime state. Each learner has one durable `runs/family/<child-id>/AGENTS.md`;
-Codex owns conversation history and the runtime stores only the current thread
-binding.
+or runtime state. Each learner has one durable `runs/family/<child-id>/AGENTS.md`.
+ChatGPT owns conversation history; NeoY stores only the learner/thread/browser
+target binding and Family Tutor stores durable learner memory.
 
 ## Commercial deployment boundary
 

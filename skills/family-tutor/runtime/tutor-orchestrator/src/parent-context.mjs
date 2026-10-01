@@ -19,7 +19,7 @@ function normalizeWhitespace(text) {
 }
 
 export function renderParentNaturalText(input, channelMentionId, childName, childChannelId) {
-  const logicalMention = `@${childName}(channelId=${childChannelId})`;
+  const logicalMention = childChannelId ? `@${childName}(channelId=${childChannelId})` : `@${childName}`;
   return normalizeWhitespace(String(input || '').replaceAll(`<#${channelMentionId}>`, logicalMention));
 }
 

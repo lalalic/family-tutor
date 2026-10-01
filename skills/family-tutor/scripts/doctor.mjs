@@ -2,27 +2,50 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
-const here=path.dirname(fileURLToPath(import.meta.url));
 const instance=path.resolve(process.argv[2]||process.cwd());
-const config=path.join(instance,'config','family.config.json');
+const configPath=path.join(instance,'config','family.config.json');
 let failed=false;
 function check(ok,msg){console.log(`${ok?'✓':'✗'} ${msg}`); if(!ok) failed=true;}
-check(fs.existsSync(config),`config exists: ${config}`);
+
+check(fs.existsSync(configPath),`config exists: ${configPath}`);
 check(Boolean(process.env.DISCORD_BOT_TOKEN),'DISCORD_BOT_TOKEN is exported');
-const executable=spawnSync('codex',['--version'],{encoding:'utf8',timeout:5000});
-check(executable.status===0,'codex executable is available');
-const login=spawnSync('codex',['login','status'],{encoding:'utf8',timeout:5000});
-const loginOutput=`${login.stdout||''}\n${login.stderr||''}`;
-check(login.status===0 && /logged in using|already logged in|authenticated/i.test(loginOutput),'Codex login is active');
-if(fs.existsSync(config)){
+
+let cfg=null;
+if(fs.existsSync(configPath)){
   try{
-    const cfg=JSON.parse(fs.readFileSync(config,'utf8'));
-    check(Array.isArray(cfg.children)&&cfg.children.every(c=>c.discordChannelId),'every child has a Discord channel id');
-    check(cfg.codex?.backend==='codex','Codex backend is configured');
-    check(Array.isArray(cfg.children)&&cfg.children.every(c=>!Object.keys(c).some(key=>/project|tab/i.test(key))),'children have no browser bindings');
+    cfg=JSON.parse(fs.readFileSync(configPath,'utf8'));
+    check(Array.isArray(cfg.children)&&cfg.children.length>0,'at least one child is configured');
+    check(Array.isArray(cfg.children)&&cfg.children.every(c=>c.id&&c.name),'every child has canonical id and name');
+    check(Array.isArray(cfg.children)&&cfg.children.every(c=>!Object.keys(c).some(key=>/project|tab|discordChannelId/i.test(key))),'children keep no browser/provider bindings');
     check(Boolean(cfg.discord?.parentChannelId),'parent channel id is configured');
-  }catch(e){check(false,`config parses: ${e.message}`)}
+  }catch(error){
+    check(false,`config parses: ${error.message}`);
+  }
 }
+
+if(cfg?.neoyTutor?.enabled){
+  const url=cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp';
+  try{
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:'doctor',method:'tools/list',params:{}}),
+      signal:AbortSignal.timeout(5000),
+    });
+    const body=await response.json();
+    const tools=body?.result?.tools||[];
+    check(response.ok,'NeoY MCP is reachable');
+    check(tools.some(tool=>tool?.name==='tutor.workspace'),'NeoY exposes tutor.workspace');
+  }catch(error){
+    check(false,`NeoY tutor is reachable: ${error.message}`);
+  }
+}else{
+  const executable=spawnSync('codex',['--version'],{encoding:'utf8',timeout:5000});
+  check(executable.status===0,'Codex executable is available for legacy/local fallback');
+  const login=spawnSync('codex',['login','status'],{encoding:'utf8',timeout:5000});
+  const loginOutput=`${login.stdout||''}\n${login.stderr||''}`;
+  check(login.status===0 && /logged in using|already logged in|authenticated/i.test(loginOutput),'Codex login is active');
+}
+
 process.exitCode=failed?1:0;
