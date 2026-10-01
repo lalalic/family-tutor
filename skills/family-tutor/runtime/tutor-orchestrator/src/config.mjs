@@ -5,8 +5,9 @@ export function loadConfig(file){
   const configPath=path.resolve(file);
   const cfg=JSON.parse(fs.readFileSync(configPath,'utf8'));
   if(cfg.version!==1) throw new Error(`Unsupported config version: ${cfg.version}`);
-  if(!Array.isArray(cfg.children)||cfg.children.length===0) throw new Error('children must be a non-empty array');
-  if(!nonEmpty(cfg.discord?.parentChannelId)) throw new Error('discord.parentChannelId is required');
+  if(!Array.isArray(cfg.children)) throw new Error('children must be an array');
+  if(!cfg.discord||typeof cfg.discord!=='object') cfg.discord={parentChannelId:''};
+  if(typeof cfg.discord.parentChannelId!=='string') cfg.discord.parentChannelId='';
   if(cfg.codex?.backend!=='codex') throw new Error(`Unsupported codex backend: ${cfg.codex?.backend}`);
   if(cfg.neoyTutor?.enabled){
     const url=String(cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp');

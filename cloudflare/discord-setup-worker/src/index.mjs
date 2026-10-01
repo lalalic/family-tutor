@@ -162,6 +162,21 @@ export default {
       return completionHtml(true, "The Family Tutor bot was connected. NeoY will continue setup automatically.");
     }
 
+    const internalSessionMatch = url.pathname.match(/^\/v1\/internal\/sessions\/([^/]+)$/);
+    if (request.method === "GET" && internalSessionMatch) {
+      const session = decodeURIComponent(internalSessionMatch[1]);
+      if (!validSession(session)) return json({ error: "invalid_session" }, 400);
+      const response = await sessionStub(env, session).fetch(new Request("https://session/session/status"));
+      const payload = await response.json();
+      if (!response.ok) return json(payload, response.status);
+      return json({
+        session: payload.session,
+        status: payload.status,
+        discord_connected: payload.status === "connected",
+        guild_id: payload.status === "connected" ? payload.guildId : null,
+      });
+    }
+
     const sessionMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)$/);
     if (request.method === "GET" && sessionMatch) {
       const session = decodeURIComponent(sessionMatch[1]);
