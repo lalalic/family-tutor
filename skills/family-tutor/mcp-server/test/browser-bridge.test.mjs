@@ -523,7 +523,9 @@ test('new_thread uses NeoY-style callback after exactly-once external delivery',
     assert.match((await requested.json()).result.content[0].text,/"after":"final_reply"/);
     assert.equal(rotations.length,0);
     const delivered=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:turn.correlationId,text:'answer',final:true}}});
-    assert.equal((await delivered.json()).result.isError,undefined);
+    const deliveredBody=await delivered.json();
+    assert.equal(deliveredBody.result.isError,undefined);
+    assert.match(deliveredBody.result.content[0].text,/\"source\":\"mcp\"/);
     assert.equal(replies.length,1);
     assert.equal(rotations.length,1);
     const duplicate=await bridge.reply(turn.correlationId,'fallback',{final:true});

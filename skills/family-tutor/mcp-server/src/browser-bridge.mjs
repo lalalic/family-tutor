@@ -521,7 +521,7 @@ export class BrowserBridge {
     return true;
   }
 
-  async reply(correlationId,text,{final=true}={}){
+  async reply(correlationId,text,{final=true,source='runtime-fallback'}={}){
     const state=this.correlations.get(correlationId);
     if(!state){
       const completed=this.completedCorrelations.get(correlationId);
@@ -532,6 +532,7 @@ export class BrowserBridge {
     const clean=String(text||'').trim();
     if(!clean) throw new Error('reply text is required');
     this.#setTurnStage(correlationId,'delivery_started');
+    console.log('[family-tutor] discord delivery',{childId:state.childId,source,final:Boolean(final)});
     try{
       if(state.reply) await state.reply(clean);
       else if(this.replyToDiscord) await this.replyToDiscord({correlationId,childId:state.childId,origin:state.origin,text:clean});
@@ -540,7 +541,7 @@ export class BrowserBridge {
       this.#setTurnStage(correlationId,'discord_send_failed',error);
       throw error;
     }
-    if(!final){ this.#setTurnStage(correlationId,'progress_delivered'); return {ok:true,childId:state.childId,correlationId,final:false}; }
+    if(!final){ this.#setTurnStage(correlationId,'progress_delivered'); return {ok:true,childId:state.childId,correlationId,final:false,source}; }
     this.#setTurnStage(correlationId,'delivered');
     if(state.timer) clearTimeout(state.timer);
     if(state.deliveryTimer) clearTimeout(state.deliveryTimer);
@@ -562,7 +563,7 @@ export class BrowserBridge {
       }
     }
     this.#dispatch(state.childId);
-    return {ok:true,childId:state.childId,correlationId,final:true};
+    return {ok:true,childId:state.childId,correlationId,final:true,source};
   }
 
   async #deleteCorrelation(id,state=this.correlations.get(id)){
@@ -751,7 +752,7 @@ export class BrowserBridge {
             if(args.final!==undefined) throw new Error('final is only valid with correlationId');
             return {jsonrpc:'2.0',id,result:textResult(await this.send(args.channelId,args.text))};
           }
-          return {jsonrpc:'2.0',id,result:textResult(await this.reply(args.correlationId,args.text,{final:args.final!==false}))};
+          return {jsonrpc:'2.0',id,result:textResult(await this.reply(args.correlationId,args.text,{final:args.final!==false,source:'mcp'}))};
         }
         if(params?.name==='new_thread'||params?.name==='request_new_thread'){
           const correlationId=String(params.arguments?.correlationId||'');
