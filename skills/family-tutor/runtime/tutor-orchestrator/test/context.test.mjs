@@ -16,6 +16,14 @@ test('kid and parent turns share senderName and message before bridge correlatio
   assert.deepEqual(parent,{type:'parent',data:{senderName:'Parents',message:'remind @sammy to review fractions'}});
 });
 
+
+test('runtime context carries only opaque correlation for Discord delivery',()=>{
+  const kid=envelope(buildKidContext({childName:'Sammy',text:'help',correlationId:'corr_123'}));
+  assert.deepEqual(kid,{type:'kid',data:{senderName:'Sammy',message:'help',correlationId:'corr_123'}});
+  const parent=envelope(buildParentContextPrompt({text:'status @sammy',correlationId:'corr_456'}));
+  assert.deepEqual(parent,{type:'parent',data:{senderName:'Parents',message:'status @sammy',correlationId:'corr_456'}});
+});
+
 test('parent status and reminder commands stay parent-routed by their logical target',()=>{
   assert.deepEqual(parseParentCommand('!remind sammy review fractions'),{command:'!remind',childId:'sammy',value:'review fractions'});
   const status=envelope(buildSlashStatusPrompt({child:{id:'sammy',name:'Sammy'},channelId:'ch_parents_123456789012345',targetChannelId:'ch_sammy_12345678901234567',memory:'private transcript'}));

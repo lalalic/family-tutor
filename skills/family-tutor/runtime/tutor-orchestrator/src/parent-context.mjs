@@ -44,8 +44,8 @@ export function parseParentMessage(text, children) {
   return { command: 'parent-query', channelMentionId, value: input };
 }
 
-export function buildParentContextPrompt({ text }) {
-  return buildParentRuntimeContext({ text });
+export function buildParentContextPrompt({ text, correlationId }) {
+  return buildParentRuntimeContext({ text, correlationId });
 }
 
 export const statusCommand = { name: 'status', description: 'Show a privacy-filtered learning status for one child or all children' };

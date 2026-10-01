@@ -54,7 +54,7 @@ function contextWithCorrelation(prompt,correlationId){
 }
 
 export class BrowserBridge {
-  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,addChild=null,deleteChild=null,getSetupStatus=null,finishSetup=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,deliveryGraceMs=8000,deliveryRetryMs=30000,discordOAuthExchange=null}){
+  constructor({instanceDir,children=[],host='127.0.0.1',port=8787,token=null,blobDir=null,fetchImpl=fetch,replyToDiscord=null,sendToDiscord=null,requestNewThread=null,addChild=null,deleteChild=null,getSetupStatus=null,finishSetup=null,ttlMs=DEFAULT_TTL_MS,turnTimeoutMs=DEFAULT_TTL_MS,deliveryGraceMs=8000,deliveryRetryMs=30000,discordOAuthExchange=null}){
     this.instanceDir=instanceDir;
     this.root=path.join(instanceDir,'.browser-bridge');
     this.blobRoot=blobDir||path.join(this.root,'blobs');
@@ -65,6 +65,7 @@ export class BrowserBridge {
     this.fetchImpl=fetchImpl;
     this.replyToDiscord=replyToDiscord;
     this.sendToDiscord=sendToDiscord;
+    this.requestNewThread=requestNewThread;
     this.channelHandles=new Map();
     this.providerChannels=new Map();
     this.addChild=addChild;
@@ -409,6 +410,37 @@ export class BrowserBridge {
     return {ok:true,channelId:String(channelId)};
   }
 
+  beginExternalTurn({childId,origin,reply=null}){
+    if(!this.children.has(childId)) throw new Error('unknown child');
+    if(this.inFlight.has(childId)) throw new Error('child already has an active turn');
+    const correlationId=crypto.randomUUID();
+    const state={
+      childId,
+      origin:{channelId:origin?.channelId||'',messageId:origin?.messageId||'',threadId:origin?.threadId||null},
+      blobDir:null,
+      files:[],
+      expiresAt:Date.now()+this.ttlMs,
+      reply,
+      resolve:null,
+      reject:null,
+      timer:null,
+      deliveryTimer:null,
+      deliveryReminderSent:false,
+      stage:'received',
+      stageAt:new Date().toISOString(),
+      external:true,
+    };
+    this.correlations.set(correlationId,state);
+    this.inFlight.set(childId,correlationId);
+    this.#setTurnStage(correlationId,'received');
+    return {correlationId,childId};
+  }
+
+  wasDelivered(correlationId){
+    const completed=this.completedCorrelations.get(String(correlationId||''));
+    return Boolean(completed&&completed.expiresAt>Date.now());
+  }
+
   async turn({childId,prompt,attachments=[],origin,reply}){
     const turn=await this.enqueue({childId,text:prompt,attachments,origin,reply});
     const state=this.correlations.get(turn.correlationId);
@@ -516,6 +548,19 @@ export class BrowserBridge {
     this.inFlight.delete(state.childId);
     await this.#deleteCorrelation(correlationId,state);
     this.completedCorrelations.set(correlationId,{childId:state.childId,expiresAt:Date.now()+COMPLETED_CORRELATION_TTL_MS});
+    const rotation=this.rotationPending.get(state.childId);
+    if(rotation){
+      this.rotationPending.delete(state.childId);
+      try{
+        if(this.requestNewThread) await this.requestNewThread({childId:state.childId,correlationId,reason:rotation.reason||'context_long'});
+        else{
+          const socket=this.childSockets.get(state.childId);
+          if(socket&&socket.readyState===WebSocket.OPEN) socket.send(JSON.stringify({type:'thread.rotate',childId:state.childId,correlation:{correlationId},reason:rotation.reason||'context_long'}));
+        }
+      }catch(error){
+        console.error('[family-tutor] new thread request failed',{childId:state.childId,error:String(error?.message||error)});
+      }
+    }
     this.#dispatch(state.childId);
     return {ok:true,childId:state.childId,correlationId,final:true};
   }
@@ -688,12 +733,12 @@ export class BrowserBridge {
 
   async #mcp(body){
     const {id,method,params={}}=body||{};
-    if(method==='initialize') return {jsonrpc:'2.0',id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'family-tutor-browser-bridge',version:'0.1.0'}}};
+    if(method==='initialize') return {jsonrpc:'2.0',id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'family-tutor',version:'0.1.0'}}};
     if(method==='notifications/initialized') return null;
     if(method==='ping') return {jsonrpc:'2.0',id,result:{}};
     if(method==='tools/list') return {jsonrpc:'2.0',id,result:{tools:[
-      {name:'reply_to_discord',title:'Send to Discord',description:'Send a Family Tutor Discord message using exactly one address: correlationId replies to the active inbound turn; channelId sends a new message to a target named in the message context.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor message…','openai/toolInvocation/invoked':'Family Tutor message sent'},inputSchema:{type:'object',additionalProperties:false,required:['text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque reply handle supplied in data.correlationId for the active inbound turn.'},channelId:{type:'string',pattern:'^ch_[A-Za-z0-9_-]{24}$',description:'Opaque Family Tutor channel handle embedded in an @name(channelId=...) mention.'},text:{type:'string',minLength:1,maxLength:12000,description:'Message text to send.'},final:{type:'boolean',default:true,description:'For correlationId replies only: false sends progress; true completes the inbound turn.'}},oneOf:[{required:['correlationId'],not:{required:['channelId']}},{required:['channelId'],not:{required:['correlationId','final']}}]}},
-      {name:'request_new_thread',title:'Refresh Tutor Context',description:'Request that Family Tutor transparently use a fresh ChatGPT thread for this learner starting with the next Discord turn. Use when the current conversation is very long, accumulated unrelated or stale context is reducing tutoring quality, many separate homework sessions or topics have built up, or a natural session boundary arrives after substantial conversation. Do not use for a single topic change, a short conversation, a temporary response/tool error, or when preserving the immediate conversation context is important. Request rollover only once for the same transition.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
+      {name:'reply_to_discord',title:'Reply to Discord Channel',description:'Send a Family Tutor Discord message using exactly one address: correlationId replies to the active inbound turn; channelId sends a new message to a target named in the message context.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:false},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Sending Family Tutor message…','openai/toolInvocation/invoked':'Family Tutor message sent'},inputSchema:{type:'object',additionalProperties:false,required:['text'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque reply handle supplied in data.correlationId for the active inbound turn.'},channelId:{type:'string',pattern:'^ch_[A-Za-z0-9_-]{24}$',description:'Opaque Family Tutor channel handle embedded in an @name(channelId=...) mention.'},text:{type:'string',minLength:1,maxLength:12000,description:'Message text to send.'},final:{type:'boolean',default:true,description:'For correlationId replies only: false sends progress; true completes the inbound turn.'}},oneOf:[{required:['correlationId'],not:{required:['channelId']}},{required:['channelId'],not:{required:['correlationId','final']}}]}},
+      {name:'new_thread',title:'New Tutor Thread',description:'Request a fresh ChatGPT thread for this learner after the current Discord reply is delivered. Use when the current conversation is very long, accumulated unrelated or stale context is reducing tutoring quality, many separate homework sessions or topics have built up, or a natural session boundary arrives after substantial conversation. Do not use for a single topic change, a short conversation, a temporary response/tool error, or when preserving the immediate conversation context is important. Request rollover only once for the same transition.',securitySchemes:[{type:'oauth2',scopes:['tutor']}],annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true},_meta:{securitySchemes:[{type:'oauth2',scopes:['tutor']}],ui:{visibility:['model','app']},'openai/toolInvocation/invoking':'Preparing fresh tutor context…','openai/toolInvocation/invoked':'Fresh tutor context scheduled'},inputSchema:{type:'object',additionalProperties:false,required:['correlationId'],properties:{correlationId:{type:'string',minLength:1,maxLength:160,description:'Opaque correlation id supplied by Family Tutor for the active Discord turn.'},reason:{type:'string',maxLength:200,description:'Short reason for requesting a fresh internal thread.'}}}}
     ]}};
     if(method==='tools/call'){
       try{
@@ -708,15 +753,17 @@ export class BrowserBridge {
           }
           return {jsonrpc:'2.0',id,result:textResult(await this.reply(args.correlationId,args.text,{final:args.final!==false}))};
         }
-        if(params?.name==='request_new_thread'){
+        if(params?.name==='new_thread'||params?.name==='request_new_thread'){
           const correlationId=String(params.arguments?.correlationId||'');
           const state=this.correlations.get(correlationId);
           if(!state||this.inFlight.get(state.childId)!==correlationId) throw new Error('correlation is not active');
-          const socket=this.childSockets.get(state.childId);
-          if(!socket||socket.readyState!==WebSocket.OPEN) throw new Error('Family Tutor extension is not connected for child');
-          this.rotationPending.set(state.childId,{requestedAt:new Date().toISOString(),reason:String(params.arguments?.reason||'context_long').slice(0,200)});
-          socket.send(JSON.stringify({type:'thread.rotate',childId:state.childId,correlation:{correlationId},reason:String(params.arguments?.reason||'context_long').slice(0,200)}));
-          return {jsonrpc:'2.0',id,result:textResult({ok:true,requested:true})};
+          const reason=String(params.arguments?.reason||'context_long').slice(0,200);
+          if(!this.requestNewThread){
+            const socket=this.childSockets.get(state.childId);
+            if(!socket||socket.readyState!==WebSocket.OPEN) throw new Error('no new-thread transport is available for child');
+          }
+          this.rotationPending.set(state.childId,{requestedAt:new Date().toISOString(),reason});
+          return {jsonrpc:'2.0',id,result:textResult({ok:true,requested:true,after:'final_reply'})};
         }
         return {jsonrpc:'2.0',id,result:textResult({error:'unknown tool'},true)};
       }catch(error){return {jsonrpc:'2.0',id,result:textResult({error:String(error?.message||error)},true)};}

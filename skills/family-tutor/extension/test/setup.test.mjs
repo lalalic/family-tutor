@@ -150,13 +150,16 @@ test('auto setup applies a learner-specific profile to every kid project',()=>{
   assert.match(content,/applyProjectInstructions/);
 });
 
-test('canonical bootstrap is local and transport-agnostic for NeoY Tutor',()=>{
+test('canonical bootstrap declares Family Tutor delivery and rollover tools',()=>{
   const bootstrap=fs.readFileSync(path.resolve(root,'../bootstrap/latest.md'),'utf8');
   const profile=fs.readFileSync(path.resolve(root,'../setup/learner-profile-template.md'),'utf8');
   assert.match(bootstrap,/dedicated tutor/i);
   assert.match(bootstrap,/Project-only|Keep learners separate|Keep learners separate/i);
   assert.doesNotMatch(bootstrap,/https?:\/\//);
-  assert.doesNotMatch(bootstrap,/reply_to_discord|final=true|FAMILY_TUTOR_DELIVERY_REMINDER/);
+  assert.match(bootstrap,/reply_to_discord/);
+  assert.match(bootstrap,/new_thread/);
+  assert.match(bootstrap,/visible ChatGPT response is \*\*not delivery\*\*/i);
+  assert.doesNotMatch(bootstrap,/FAMILY_TUTOR_DELIVERY_REMINDER/);
   assert.match(profile,/<NAME>/);
   assert.match(profile,/exactly one learner/i);
   assert.doesNotMatch(profile,/https?:\/\//);
