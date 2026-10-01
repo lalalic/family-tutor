@@ -349,7 +349,13 @@ async function ensureNeoYTutorLearners(status){
 
 async function finalizeBootstrapForGuild({guildId,sessionId}){
   if(!client.isReady()) throw new Error('Discord client is not ready yet.');
-  const guild=await client.guilds.fetch(String(guildId||''));
+  let resolvedGuildId=String(guildId||'').trim();
+  if(!resolvedGuildId && config.discord?.parentChannelId){
+    const parent=await client.channels.fetch(config.discord.parentChannelId);
+    resolvedGuildId=String(parent?.guild?.id||'');
+  }
+  if(!resolvedGuildId) throw new Error('Discord guild id is unavailable.');
+  const guild=await client.guilds.fetch(resolvedGuildId);
   await guild.channels.fetch();
   const family=discoverFamilyFromGuild(guild);
   if(family.discovery!=='automatic'){
@@ -381,8 +387,7 @@ function startBootstrapControl(){
       let raw=''; for await(const chunk of req){raw+=chunk;if(raw.length>256*1024){res.destroy();return;}}
       try{
         const body=raw?JSON.parse(raw):{};
-        if(!body.guild_id) return send(400,{error:'guild_id_required'});
-        const result=await finalizeBootstrapForGuild({guildId:body.guild_id,sessionId:body.session_id||null});
+        const result=await finalizeBootstrapForGuild({guildId:body.guild_id||'',sessionId:body.session_id||null});
         return send(result.status==='ready'?200:409,result);
       }catch(error){
         console.error('[family-tutor] bootstrap discovery failed',error);
