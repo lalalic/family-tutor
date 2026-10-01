@@ -79,3 +79,56 @@ test('NeoYTutorClient surfaces MCP tool errors',async()=>{
   });
   await assert.rejects(client.status(),/learner not bound/);
 });
+
+
+test('NeoYTutorClient setup sends project bootstrap fields',async()=>{
+  const calls=[];
+  const client=new NeoYTutorClient({
+    instanceDir:os.tmpdir(),
+    fetchImpl:async(url,options)=>{
+      const body=JSON.parse(options.body);
+      calls.push(body.params.arguments);
+      return jsonResponse({
+        jsonrpc:'2.0',id:body.id,
+        result:{isError:false,content:[{type:'text',text:JSON.stringify({
+          status:'completed',
+          learner:'maggie',
+          project_id:'g-p-12345678901234567890123456789012',
+          project_url:'https://chatgpt.com/g/g-p-12345678901234567890123456789012/project',
+          project_reused:true,
+          memory:'project-only',
+          thread_url:'https://chatgpt.com/g/g-p-12345678901234567890123456789012/c/thread',
+          target_id:'target-1'
+        })}]},
+      });
+    },
+  });
+  const result=await client.setup({
+    learner:'maggie',
+    projectName:'Maggie',
+    instructions:'Tutor instructions',
+    initialPrompt:'Initialize Maggie',
+  });
+  assert.equal(result.project_reused,true);
+  assert.deepEqual(calls[0],{
+    action:'setup',
+    learner:'maggie',
+    project_name:'Maggie',
+    instructions:'Tutor instructions',
+    initial_prompt:'Initialize Maggie',
+  });
+});
+
+test('NeoYTutorClient resetThread reuses setup contract',async()=>{
+  let args=null;
+  const client=new NeoYTutorClient({
+    instanceDir:os.tmpdir(),
+    fetchImpl:async(url,options)=>{
+      const body=JSON.parse(options.body); args=body.params.arguments;
+      return jsonResponse({jsonrpc:'2.0',id:body.id,result:{isError:false,content:[{type:'text',text:JSON.stringify({status:'completed'})}]}});
+    },
+  });
+  await client.resetThread({learner:'sammy',projectName:'Sammy',instructions:'i'});
+  assert.equal(args.action,'reset_thread');
+  assert.equal(args.project_name,'Sammy');
+});

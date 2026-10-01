@@ -2,7 +2,7 @@
 
 Family Tutor uses the locally authenticated `codex` CLI. It does not use DevMacBridge, Chrome, ChatGPT tabs, ChatGPT Projects, or browser automation.
 
-Each child has an isolated Codex thread. The runtime stores only `.codex-thread.json` below that child's ignored instance directory and resumes it with `codex exec resume`. The current `AGENTS.md` is supplied on every turn, so durable learner context survives a thread rollover without copying a transcript.
+Each child has an isolated Codex thread. The runtime stores only `.codex-thread.json` below that child's ignored instance directory and resumes it with `codex exec resume`. Legacy Codex mode may still use its historical local memory file. The NeoY Tutor path does not; it uses Project-only memory and the persistent ChatGPT thread.
 
 Images are downloaded into a temporary directory and passed to Codex with `--image`; temporary files are removed after the turn. Voice messages are transcribed locally before the tutor turn.
 

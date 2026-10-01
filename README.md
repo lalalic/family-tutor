@@ -86,8 +86,7 @@ inbound `start({onMessage})`. The same process serves `/mcp`, `/extension`,
 ## Private local instance
 
 The local tutoring runtime is an operator/development path, not the hosted
-multi-family service. Keep family configuration, learner memory, Discord IDs,
-credentials, and thread state under ignored `runs/family/`:
+multi-family service. Keep family configuration, Discord IDs, credentials, and runtime state under ignored `runs/family/`:
 
 ```bash
 node skills/family-tutor/scripts/init-instance.mjs runs/family
@@ -95,16 +94,9 @@ node skills/family-tutor/scripts/doctor.mjs runs/family
 node skills/family-tutor/scripts/service.mjs start runs/family
 ```
 
-New private/local instances use NeoY Tutor Workspace by default. Bind each learner
-to an existing ChatGPT thread in **NeoY Setup → Tutor** before starting the
-orchestrator. The Family Tutor Chrome extension is not required for this local
-NeoY path. Existing browserBridge-based instances remain supported as a legacy
-migration path.
+New private/local instances use NeoY Tutor Workspace by default. On startup the orchestrator automatically ensures one ChatGPT Project and initial thread per learner. It uses the skill-local `bootstrap/latest.md` and `setup/learner-profile-template.md`; no website and no Family Tutor Chrome extension are required. Existing browserBridge-based instances remain supported only as a legacy migration path.
 
-Never commit real family configuration, learner details, transcripts, tokens,
-or runtime state. Each learner has one durable `runs/family/<child-id>/AGENTS.md`.
-ChatGPT owns conversation history; NeoY stores only the learner/thread/browser
-target binding and Family Tutor stores durable learner memory.
+Never commit real family configuration, learner details, transcripts, tokens, or runtime state. There is no learner `AGENTS.md` in the NeoY path. ChatGPT Project-only memory and the persistent learner thread provide continuity; NeoY stores only project/thread/browser binding metadata.
 
 ## Commercial deployment boundary
 

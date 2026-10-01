@@ -178,7 +178,8 @@ test('hosted server serves a generic learner profile template and bootstrap with
     const templateResponse = await fetch(`${base}/v1/learner-profile-template`);
     assert.equal(templateResponse.status, 200);
     const template = await templateResponse.json();
-    assert.match(template.template, /https:\/\/family-tutor\.qili2\.com\/bootstrap\/latest\.md/);
+    assert.doesNotMatch(template.template, /family-tutor\.qili2\.com|https?:\/\//);
+    assert.equal(template.bootstrapPath, '/bootstrap/latest.md');
     assert.match(template.template, /<NAME>/);
     assert.match(template.template, /exactly one learner/);
     assert.doesNotMatch(template.template, /reply_to_discord|send_tutor_message|create_study_plan|FAMILY_TUTOR_CONTEXT/);

@@ -56,8 +56,6 @@ async function sendSetupGreetings(){
   }
   return {alreadyComplete:Boolean(state.parent&&config.children.every(child=>state.children?.[child.id])),greetingsSent:true};
 }
-function agentsFile(child){ return path.resolve(path.dirname(config.configPath),'..',child.id,'AGENTS.md'); }
-function ensureAgents(child){ const file=agentsFile(child); if(fs.existsSync(file)) return; fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,`# ${child.name} Agent Context\n\n`,{mode:0o600}); }
 function childIdFromName(name){
   return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
 }
@@ -82,7 +80,6 @@ async function addKid({name}){
   }
   const child={id,name:clean};
   config.children.push(child);
-  ensureAgents(child);
   persistConfig();
   return child;
 }
@@ -93,7 +90,6 @@ async function deleteKid({childId}){
   persistConfig();
   return {childId};
 }
-for(const child of config.children) ensureAgents(child);
 const queues=new Map();
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
 let browserBridge=null;
@@ -102,28 +98,22 @@ let neoyTutor=null;
 function turnPrompt(child,message){ return buildKidContext({childName:child.name,text:message}); }
 function parseTutorText(text){
   const parent=text.match(/<FAMILY_TUTOR_PARENT>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_PARENT>/i);
-  const memory=text.match(/<FAMILY_TUTOR_MEMORY>\s*([\s\S]*?)\s*<\/FAMILY_TUTOR_MEMORY>/i);
   const rollover=/<FAMILY_TUTOR_ROLLOVER\s*\/>/i.test(text);
   const childText=text
     .replace(/<FAMILY_TUTOR_PARENT>[\s\S]*?<\/FAMILY_TUTOR_PARENT>/ig,'')
-    .replace(/<FAMILY_TUTOR_MEMORY>[\s\S]*?<\/FAMILY_TUTOR_MEMORY>/ig,'')
     .replace(/<FAMILY_TUTOR_ROLLOVER\s*\/>/ig,'')
     .trim();
-  return {childText,parentText:parent?.[1]?.trim()||null,memoryText:memory?.[1]?.trim()||null,rollover};
-}
-function writeAgents(child,text){
-  if(!text) return;
-  if(Buffer.byteLength(text,'utf8')>100000) throw new Error(`AGENTS.md update for ${child.id} exceeds 100 KB`);
-  const file=agentsFile(child); const tmp=`${file}.tmp`;
-  fs.mkdirSync(path.dirname(file),{recursive:true});
-  fs.writeFileSync(tmp,`${text.trim()}\n`,{mode:0o600});
-  fs.renameSync(tmp,file);
+  return {childText,parentText:parent?.[1]?.trim()||null,rollover};
 }
 async function applyTutorSideEffects(child,parsed){
-  if(parsed.memoryText) writeAgents(child,parsed.memoryText);
   if(parsed.rollover){
     if(neoyTutor){
-      console.warn(`[family-tutor] ${child.id} requested thread rollover; bind a new ChatGPT thread in NeoY Setup → Tutor before the next turn`);
+      await neoyTutor.resetThread({
+        learner:child.id,
+        projectName:child.name||child.id,
+        instructions:await tutorProjectInstructions(child),
+        initialPrompt:`Start a fresh Family Tutor thread for ${child.name||child.id}. Use the Project Instructions. Reply only with READY.`,
+      });
     }else{
       await backend.newThread({childId:child.id});
     }
@@ -251,7 +241,63 @@ async function resolveMentionedChild(command){
   validateChildChannel(child,channel);
   return child;
 }
-function learnerMemory(child){ try{return fs.readFileSync(agentsFile(child),'utf8');}catch{return '';} }
+const FAMILY_TUTOR_SKILL_ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),'../../..');
+const LEARNER_PROFILE_TEMPLATE_FILE=path.join(FAMILY_TUTOR_SKILL_ROOT,'setup','learner-profile-template.md');
+const BOOTSTRAP_FILE=path.join(FAMILY_TUTOR_SKILL_ROOT,'bootstrap','latest.md');
+
+function readCanonicalTutorAssets(){
+  const profileTemplate=fs.readFileSync(LEARNER_PROFILE_TEMPLATE_FILE,'utf8').trim();
+  const bootstrap=fs.readFileSync(BOOTSTRAP_FILE,'utf8').trim();
+  if(!profileTemplate||!bootstrap) throw new Error('Family Tutor canonical setup assets are missing');
+  return {profileTemplate,bootstrap};
+}
+
+async function tutorProjectInstructions(child){
+  const {profileTemplate,bootstrap}=readCanonicalTutorAssets();
+  const value=(field,fallback='Not specified')=>{
+    const raw=String(field??'').trim();
+    return raw||fallback;
+  };
+  const profile=profileTemplate
+    .replaceAll('<STUDENT_NAME>',value(child.name,child.id))
+    .replaceAll('<NAME>',value(child.name,child.id))
+    .replaceAll('<PREFERRED_NAME>',value(child.preferredName||child.name,child.id))
+    .replaceAll('<GRADE_OR_LEVEL>',value(child.grade||child.level))
+    .replaceAll('<LEVEL>',value(child.grade||child.level))
+    .replaceAll('<LANGUAGE>',value(child.language))
+    .replaceAll('<INTERESTS>',value(child.interests))
+    .replaceAll('<INTEREST>',value(child.interests))
+    .replaceAll('<STRENGTHS>',value(child.strengths))
+    .replaceAll('<LEARNING_GOALS>',value(child.learningGoals||child.goals))
+    .replaceAll('<GOAL>',value(child.learningGoals||child.goals))
+    .replaceAll('<PREFERENCE>',value(child.learningPreferences||child.preferences))
+    .replaceAll('<PARENT_PREFERENCE>',value(child.parentPreferences||child.boundaries))
+    .replaceAll('<SUBJECT>',value(child.subjects||child.courses));
+  return `${profile}\n\n---\n\n${bootstrap}`;
+}
+
+async function ensureNeoYTutorLearners(status){
+  const bindings=new Map((status?.bindings||[]).map(binding=>[binding.learner,binding]));
+  for(const child of config.children){
+    const existing=bindings.get(child.id);
+    if(existing?.project_id && existing?.thread_url) continue;
+    const result=await neoyTutor.setup({
+      learner:child.id,
+      projectName:child.name||child.id,
+      instructions:await tutorProjectInstructions(child),
+      initialPrompt:`Initialize ${child.name||child.id}'s Family Tutor learning thread. Use the Project Instructions. Reply only with READY.`,
+    });
+    bindings.set(child.id,{
+      learner:child.id,
+      project_id:result.project_id,
+      project_url:result.project_url,
+      thread_url:result.thread_url,
+      target_id:result.target_id,
+    });
+    console.log(`[family-tutor-orchestrator] NeoY Tutor initialized ${child.id} in ChatGPT Project ${result.project_id} (${result.project_reused?'reused':'created'})`);
+  }
+  return [...bindings.values()];
+}
 
 function childChannelFor(message,child){
   return message.guild?.channels?.cache?.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id)||null;
@@ -293,7 +339,7 @@ async function handleParentControl(message){
 }
 
 async function statusForChild(child){
-  const prompt=buildSlashStatusPrompt({child,memory:learnerMemory(child)});
+  const prompt=buildSlashStatusPrompt({child,memory:''});
   if(neoyTutor){
     const result=await neoyTutor.turn({learner:child.id,prompt,attachments:[]});
     return formatSlashStatus(child,result.text);
@@ -362,7 +408,8 @@ if(config.neoyTutor?.enabled){
     instanceDir,
   });
   const status=await neoyTutor.status();
-  console.log(`[family-tutor-orchestrator] NeoY Tutor connected at ${config.neoyTutor.url||'http://127.0.0.1:6767/mcp'} with ${status.bindings?.length||0} learner binding(s)`);
+  const bindings=await ensureNeoYTutorLearners(status);
+  console.log(`[family-tutor-orchestrator] NeoY Tutor connected at ${config.neoyTutor.url||'http://127.0.0.1:6767/mcp'} with ${bindings.length} learner binding(s)`);
 }
 if(!neoyTutor&&config.browserBridge?.enabled){
   browserBridge=new BrowserBridge({
