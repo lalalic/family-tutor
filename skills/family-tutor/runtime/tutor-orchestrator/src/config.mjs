@@ -8,6 +8,14 @@ export function loadConfig(file){
   if(!Array.isArray(cfg.children)||cfg.children.length===0) throw new Error('children must be a non-empty array');
   if(!nonEmpty(cfg.discord?.parentChannelId)) throw new Error('discord.parentChannelId is required');
   if(cfg.codex?.backend!=='codex') throw new Error(`Unsupported codex backend: ${cfg.codex?.backend}`);
+  if(cfg.neoyTutor?.enabled){
+    const url=String(cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp');
+    let parsed;
+    try{ parsed=new URL(url); }catch{ throw new Error('neoyTutor.url must be a valid URL'); }
+    if(parsed.protocol!=='http:'||!['127.0.0.1','localhost','::1'].includes(parsed.hostname)||parsed.pathname!=='/mcp'){
+      throw new Error('neoyTutor.url must be a loopback http://.../mcp URL');
+    }
+  }
   if(cfg.browserBridge?.enabled){
     const host=cfg.browserBridge.host||'127.0.0.1';
     if(!['127.0.0.1','localhost','::1'].includes(host)) throw new Error('browserBridge.host must be loopback');

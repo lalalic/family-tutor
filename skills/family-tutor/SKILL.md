@@ -1,34 +1,36 @@
 ---
 name: family-tutor
-description: Create and operate a persistent AI tutor for one or more children using Codex CLI threads, with Discord child channels, parent observation/control, separate child context, and a PM2-managed tutor orchestrator service.
+description: Create and operate a persistent family AI tutor through NeoY Tutor Workspace with Discord child channels, parent observation/control, separate learner context, and a PM2-managed tutor orchestrator.
 ---
 
 # family-tutor
 
 ## What this skill enables
 
-Create a family tutoring system in which each child has an independent persistent Codex CLI thread, rotating threads, and one local durable `AGENTS.md`. Parents can observe useful learning signals and set goals through Discord, and one long-lived PM2 orchestrator connects Discord to Codex.
+Create a family tutoring system in which each child has one independent persistent tutor context and one local durable `AGENTS.md`. Parents can observe useful learning signals and set goals through Discord. The long-lived Family Tutor orchestrator owns Discord/domain behavior; NeoY owns the fixed browser-backed ChatGPT Tutor Workspace.
 
 Capability tree:
 
-1. initialize a family-tutor instance;
-2. create one independent persistent Codex thread per child;
-3. route Discord messages deterministically to the correct child and current Codex thread;
+1. initialize a private family-tutor instance;
+2. bind one persistent ChatGPT thread per learner in NeoY;
+3. route Discord messages deterministically to the correct learner;
 4. apply tutoring behavior that teaches rather than simply answers;
 5. provide parent observation and control without indiscriminate transcript mirroring;
 6. install, inspect, restart, and diagnose the `family-tutor-orchestrator` PM2 service;
-7. rotate overly long/noisy Codex threads while preserving continuity through local `AGENTS.md`;
-8. keep provider/channel adapters replaceable.
+7. preserve learner continuity through local `AGENTS.md`;
+8. keep transport adapters replaceable during migration.
 
 ## Primary workflow
 
 1. Create an instance from `templates/` or use `scripts/init-instance.mjs`.
-2. Configure children, Discord channel ids, and the parent channel. Set `codex.backend` to `codex`.
-3. Run `scripts/doctor.mjs <instance-dir>` before service installation.
-4. Ensure the host can run the authenticated `codex` CLI. The runtime persists only each child's thread id under the ignored instance directory; it never persists transcripts.
+2. Configure canonical child ids/names, the parent Discord channel, and `neoyTutor.enabled: true`.
+3. In NeoY **Setup → Tutor**, bind each learner id to that learner's existing ChatGPT thread.
+4. Run `scripts/doctor.mjs <instance-dir>`. For the NeoY path it must verify that the local NeoY MCP exposes `tutor.workspace`.
 5. Install/start the orchestrator with `scripts/service.mjs start <instance-dir>`.
-6. Verify the real Discord path, not only backend health: send distinct probe messages from each child channel, confirm each reaches that child's Codex thread, and confirm the expected reply returns to the same Discord channel without cross-child leakage. When there are multiple children, test them close together so one stalled tutor cannot silently block another.
-7. Verify the parent learning channel receives a concise learning event, not the raw transcript by default.
+6. Verify the real Discord path with distinct per-child probes and confirm each reply returns to the correct child channel without cross-child leakage.
+7. Verify the parent learning channel receives concise learning telemetry rather than routine transcript mirroring.
+
+The Family Tutor Chrome extension is not required for the NeoY path. Existing `browserBridge.enabled` configurations remain a temporary legacy fallback only.
 
 ## Tutor behavior contract
 
@@ -45,24 +47,33 @@ Read `references/tutoring-behavior.md` when creating or repairing tutor behavior
 
 Read `references/parent-observation.md` when configuring the parent channel or reports. Default parent output is learning telemetry: topic, evidence, misconception, progress, next step, and tutor note. Do not mirror every child message into the parent channel by default.
 
-## Codex, memory, and thread contract
+## NeoY, memory, and thread contract
 
-- Each child MUST have a separate persistent Codex thread. Stable tutoring behavior, privacy rules, learner identity, parent telemetry format, durable-memory protocol, and thread-rollover policy are supplied by the runtime and skill contract.
-- Local durable learner context lives at `<instance-dir>/<child-id>/AGENTS.md`; private thread state is `<instance-dir>/<child-id>/.codex-thread.json`. Do not create local transcript/session folders.
-- The orchestrator prepends the current `AGENTS.md` to each turn. The tutor may replace it by emitting `<FAMILY_TUTOR_MEMORY>...complete Markdown...</FAMILY_TUTOR_MEMORY>`; the orchestrator strips the block from the child response and atomically writes the replacement.
-- When the current Codex thread has become genuinely too long or noisy for effective tutoring, the tutor first captures any durable facts in the memory block, then emits `<FAMILY_TUTOR_ROLLOVER/>`. The orchestrator strips the marker, clears that child's thread binding, and starts a fresh thread on the next turn. Do not rollover merely because the subject changed or after an arbitrary turn count.
-
-See `references/project-instructions.md` for the child Codex thread contract.
+- Each learner MUST have a separate persistent ChatGPT thread bound in NeoY Tutor Workspace.
+- NeoY persists only learner/thread/browser-target binding state. It does not persist transcripts.
+- ChatGPT page mechanics belong to `browser-platforms/platforms/chatgpt`, not to Family Tutor or NeoY Swift.
+- Local durable learner context lives at `<instance-dir>/<child-id>/AGENTS.md`.
+- The tutor may replace learner memory by emitting `<FAMILY_TUTOR_MEMORY>...complete Markdown...</FAMILY_TUTOR_MEMORY>`; the orchestrator strips the block and atomically writes the replacement.
+- Family Tutor remains responsible for privacy filtering and parent telemetry.
+- Discord attachments are downloaded into a private per-turn temporary directory only long enough for the NeoY synchronous turn, then removed.
 
 ## Runtime boundary
 
-The bundled `runtime/tutor-orchestrator` is the single long-lived PM2 service for this skill. It owns Discord transport, routing, serialized per-child queues, child Codex thread binding, durable-memory handoff, thread rollover, retries/failure reporting, parent transport/telemetry, and service lifecycle. Codex CLI processes are bounded child executions; no second daemon or IPC layer is required.
+The bundled `runtime/tutor-orchestrator` is the long-lived Family Tutor service. It owns Discord transport, exact child routing, serialized per-child queues, durable-memory handoff, retries/failure reporting, parent transport/telemetry, and service lifecycle.
 
-Tutoring intelligence belongs in the Codex tutor thread and this skill contract, not in a second local LLM or OpenAI API adapter.
+NeoY owns persistent ChatGPT workspace lifecycle through one fixed MCP tool:
 
-The backend is the local Codex CLI. See `references/chatgpt-backend.md`.
+```text
+tutor.workspace
+  status
+  bind
+  unbind
+  turn
+```
 
-An optional ChatGPT browser bridge is documented in `references/browser-bridge.md`. The reusable browser/MCP implementation lives in `mcp-server/`, while the orchestrator owns Discord ingress and exact-origin reply handling. The Chrome extension lives in `extension/` and stores only child-to-ChatGPT-Project assignments; it owns Project-tab resolution, attachment upload, and composer submission.
+The orchestrator calls that tool over the local loopback MCP endpoint. It does not automate Chrome itself.
+
+For migration only, an explicitly enabled legacy `browserBridge` may still use the old Chrome extension path when NeoY transport is not enabled. Do not use the extension for new NeoY-backed instances.
 
 ## Service lifecycle
 
@@ -78,7 +89,7 @@ node scripts/service.mjs stop <instance-dir>
 
 ## Safety and privacy
 
-- Never commit Discord tokens, Codex credentials, child transcripts, or runtime state.
+- Never commit Discord tokens, browser credentials, child transcripts, or runtime state.
 - A child channel must map to exactly one child.
 - A tutor thread must map to exactly one child.
 - Parent control commands must come only from the configured parent control channel.

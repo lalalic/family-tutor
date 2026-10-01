@@ -13,7 +13,6 @@
       "id": "kid1",
       "name": "Kid 1",
       "grade": "",
-      "discordChannelId": "",
       "gender": "",
       "school": "",
       "location": ""
@@ -22,7 +21,6 @@
       "id": "kid2",
       "name": "Kid 2",
       "grade": "",
-      "discordChannelId": "",
       "gender": "",
       "school": "",
       "location": ""
@@ -34,5 +32,9 @@
       "name": "Parent 1",
       "role": "parent"
     }
-  ]
+  ],
+  "neoyTutor": {
+    "enabled": true,
+    "url": "http://127.0.0.1:6767/mcp"
+  }
 }
