@@ -171,7 +171,7 @@ test('serves the learner profile template and canonical bootstrap without learne
     adapter,
     learnerProfileTemplate: {
       template: 'profile-template',
-      bootstrapUrl: 'https://family-tutor.qili2.com/bootstrap/latest.md',
+      bootstrapPath: '/bootstrap/latest.md',
       path: '/v1/learner-profile-template',
     },
     latestBootstrap: 'bootstrap-behaviour',
@@ -183,7 +183,7 @@ test('serves the learner profile template and canonical bootstrap without learne
     assert.equal(template.status, 200);
     assert.deepEqual(await template.json(), {
       template: 'profile-template',
-      bootstrapUrl: 'https://family-tutor.qili2.com/bootstrap/latest.md',
+      bootstrapPath: '/bootstrap/latest.md',
       path: '/v1/learner-profile-template',
     });
     const bootstrap = await fetch(`${base}/bootstrap/latest.md`);

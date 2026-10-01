@@ -5,7 +5,7 @@ import { createOnboardingFlow } from '../../onboarding/src/index.mjs';
 import { createReadinessChecks, loadProductionConfig } from '../../operations/src/index.mjs';
 import { createHostedExtensionRelay } from './extension-relay.mjs';
 import { createFeedbackIntake } from '../../feedback/src/index.mjs';
-import { LATEST_BOOTSTRAP, LEARNER_PROFILE_BOOTSTRAP_URL, LEARNER_PROFILE_TEMPLATE, LEARNER_PROFILE_TEMPLATE_PATH } from './learner-profile-template.mjs';
+import { LATEST_BOOTSTRAP, LEARNER_PROFILE_BOOTSTRAP_PATH, LEARNER_PROFILE_TEMPLATE, LEARNER_PROFILE_TEMPLATE_PATH } from './learner-profile-template.mjs';
 
 function required(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
@@ -182,7 +182,7 @@ export function createFamilyTutorProduct({
     healthCheck: readiness.health,
     readinessCheck: readiness.ready,
     ...(server.maxBodyBytes ? { maxBodyBytes: server.maxBodyBytes } : {}),
-    learnerProfileTemplate: { template: LEARNER_PROFILE_TEMPLATE, bootstrapUrl: LEARNER_PROFILE_BOOTSTRAP_URL, path: LEARNER_PROFILE_TEMPLATE_PATH },
+    learnerProfileTemplate: { template: LEARNER_PROFILE_TEMPLATE, bootstrapPath: LEARNER_PROFILE_BOOTSTRAP_PATH, path: LEARNER_PROFILE_TEMPLATE_PATH },
     latestBootstrap: LATEST_BOOTSTRAP,
   });
   extensionRelay.attach(hostedServer.server);

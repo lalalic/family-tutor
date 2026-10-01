@@ -7,7 +7,7 @@ description: Create and operate a persistent family AI tutor through NeoY Tutor 
 
 ## What this skill enables
 
-Create a family tutoring system in which each child has one independent persistent tutor context and one local durable `AGENTS.md`. Parents can observe useful learning signals and set goals through Discord. The long-lived Family Tutor orchestrator owns Discord/domain behavior; NeoY owns the fixed browser-backed ChatGPT Tutor Workspace.
+Create a family tutoring system in which each child has one independent persistent ChatGPT Project/thread. Parents can observe useful learning signals and set goals through Discord. The long-lived Family Tutor orchestrator owns Discord/domain behavior; NeoY owns the fixed browser-backed ChatGPT Tutor Workspace.
 
 Capability tree:
 
@@ -17,14 +17,14 @@ Capability tree:
 4. apply tutoring behavior that teaches rather than simply answers;
 5. provide parent observation and control without indiscriminate transcript mirroring;
 6. install, inspect, restart, and diagnose the `family-tutor-orchestrator` PM2 service;
-7. preserve learner continuity through local `AGENTS.md`;
+7. preserve learner continuity through Project-only memory and the persistent learner thread;
 8. keep transport adapters replaceable during migration.
 
 ## Primary workflow
 
 1. Create an instance from `templates/` or use `scripts/init-instance.mjs`.
 2. Configure canonical child ids/names, the parent Discord channel, and `neoyTutor.enabled: true`.
-3. In NeoY **Setup → Tutor**, bind each learner id to that learner's existing ChatGPT thread.
+3. Start the orchestrator. For any learner without a binding, NeoY automatically reuses or creates that learner's ChatGPT Project, applies the canonical local bootstrap + learner profile instructions, enables Project-only memory where available, creates the initial thread, and binds it.
 4. Run `scripts/doctor.mjs <instance-dir>`. For the NeoY path it must verify that the local NeoY MCP exposes `tutor.workspace`.
 5. Install/start the orchestrator with `scripts/service.mjs start <instance-dir>`.
 6. Verify the real Discord path with distinct per-child probes and confirm each reply returns to the correct child channel without cross-child leakage.
@@ -52,8 +52,9 @@ Read `references/parent-observation.md` when configuring the parent channel or r
 - Each learner MUST have a separate persistent ChatGPT thread bound in NeoY Tutor Workspace.
 - NeoY persists only learner/thread/browser-target binding state. It does not persist transcripts.
 - ChatGPT page mechanics belong to `browser-platforms/platforms/chatgpt`, not to Family Tutor or NeoY Swift.
-- Local durable learner context lives at `<instance-dir>/<child-id>/AGENTS.md`.
-- The tutor may replace learner memory by emitting `<FAMILY_TUTOR_MEMORY>...complete Markdown...</FAMILY_TUTOR_MEMORY>`; the orchestrator strips the block and atomically writes the replacement.
+- There is no per-user `AGENTS.md` memory file in the NeoY path.
+- `bootstrap/latest.md` and `setup/learner-profile-template.md` inside this skill are the canonical local setup assets.
+- Project-only memory plus the persistent learner thread provide continuity; NeoY stores only project/thread/browser binding metadata.
 - Family Tutor remains responsible for privacy filtering and parent telemetry.
 - Discord attachments are downloaded into a private per-turn temporary directory only long enough for the NeoY synchronous turn, then removed.
 
@@ -66,9 +67,11 @@ NeoY owns persistent ChatGPT workspace lifecycle through one fixed MCP tool:
 ```text
 tutor.workspace
   status
+  setup
   bind
   unbind
   turn
+  reset_thread
 ```
 
 The orchestrator calls that tool over the local loopback MCP endpoint. It does not automate Chrome itself.

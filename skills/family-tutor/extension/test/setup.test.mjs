@@ -150,12 +150,16 @@ test('auto setup applies a learner-specific profile to every kid project',()=>{
   assert.match(content,/applyProjectInstructions/);
 });
 
-test('Project bootstrap makes Discord tool delivery mandatory and non-duplicating',()=>{
-  const integration=fs.readFileSync(path.resolve(root,'../../../packages/integration/src/learner-profile-template.mjs'),'utf8');
-  assert.match(integration,/visible ChatGPT response is not delivery/);
-  assert.match(integration,/reply_to_discord/);
-  assert.match(integration,/final=true/);
-  assert.match(integration,/FAMILY_TUTOR_DELIVERY_REMINDER/);
+test('canonical bootstrap is local and transport-agnostic for NeoY Tutor',()=>{
+  const bootstrap=fs.readFileSync(path.resolve(root,'../bootstrap/latest.md'),'utf8');
+  const profile=fs.readFileSync(path.resolve(root,'../setup/learner-profile-template.md'),'utf8');
+  assert.match(bootstrap,/dedicated tutor/i);
+  assert.match(bootstrap,/Project-only|Keep learners separate|Keep learners separate/i);
+  assert.doesNotMatch(bootstrap,/https?:\/\//);
+  assert.doesNotMatch(bootstrap,/reply_to_discord|final=true|FAMILY_TUTOR_DELIVERY_REMINDER/);
+  assert.match(profile,/<NAME>/);
+  assert.match(profile,/exactly one learner/i);
+  assert.doesNotMatch(profile,/https?:\/\//);
 });
 
 test('setup status is the Discord source for available children',()=>{

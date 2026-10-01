@@ -48,6 +48,27 @@ export class NeoYTutorClient {
     return this.#call({action:'unbind',learner});
   }
 
+  setup({learner,projectName,instructions,initialPrompt=''}){
+    return this.#call({
+      action:'setup',
+      learner,
+      project_name:projectName,
+      instructions,
+      initial_prompt:initialPrompt,
+    });
+  }
+
+
+  resetThread({learner,projectName,instructions,initialPrompt=''}){
+    return this.#call({
+      action:'reset_thread',
+      learner,
+      project_name:projectName,
+      instructions,
+      initial_prompt:initialPrompt,
+    });
+  }
+
   async turn({learner,prompt,attachments=[]}){
     const staged=await this.#stageAttachments(attachments);
     try{
