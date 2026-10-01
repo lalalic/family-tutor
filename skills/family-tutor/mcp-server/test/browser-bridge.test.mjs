@@ -189,7 +189,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
 
     const initialized=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
     assert.equal(initialized.status,200);
-    assert.equal((await initialized.json()).result.serverInfo.name,'family-tutor-browser-bridge');
+    assert.equal((await initialized.json()).result.serverInfo.name,'family-tutor');
 
     const listed=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/list',params:{}})});
     const listedBody=await listed.json();
@@ -327,7 +327,7 @@ test('Discord install creates one-time family claim and family-scoped extension 
     assert.equal(manualPayload.aud,'https://family-tutor.qili2.com/mcp');
     const manualMcp=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:99,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'manual-token-test',version:'1'}}})});
     assert.equal(manualMcp.status,200);
-    assert.equal((await manualMcp.json()).result.serverInfo.name,'family-tutor-browser-bridge');
+    assert.equal((await manualMcp.json()).result.serverInfo.name,'family-tutor');
 
     const replay=await fetch(`${bridge.endpoint()}/v1/setup/claim`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({claim})});
     assert.equal(replay.status,400);
@@ -477,7 +477,7 @@ test('extension can add and delete kids while child display names stay separate 
 });
 
 
-test('request_new_thread immediately tells the bound extension to rotate',async()=>{
+test('new_thread rotates legacy extension only after final Discord delivery',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-rotate-'));
   const bridge=await new BrowserBridge({instanceDir:root,children:[{id:'kid1'}],host:'127.0.0.1',port:0,replyToDiscord:async()=>{}}).start();
   let socket;
@@ -488,18 +488,48 @@ test('request_new_thread immediately tells the bound extension to rotate',async(
     socket.send(JSON.stringify({type:'tab.bind',childId:'kid1',version:'2.6.1'}));
     const nextType=(type)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`${type} timeout`)),1500);const onMessage=data=>{const value=JSON.parse(data.toString());if(value.type!==type)return;clearTimeout(timer);socket.off('message',onMessage);resolve(value);};socket.on('message',onMessage);});
     const turnMessage=nextType('turn');
-    const turnPromise=bridge.turn({childId:'kid1',prompt:'<FAMILY_TUTOR_CONTEXT>\n{"type":"kid","data":{"senderName":"Kid 1","message":"one"}}\n</FAMILY_TUTOR_CONTEXT>',origin:{channelId:'c',messageId:'m1'}});
+    const turnPromise=bridge.turn({childId:'kid1',prompt:`<FAMILY_TUTOR_CONTEXT>
+{"type":"kid","data":{"senderName":"Kid 1","message":"one"}}
+</FAMILY_TUTOR_CONTEXT>`,origin:{channelId:'c',messageId:'m1'}});
     const turn=await turnMessage;
     const rotateMessage=nextType('thread.rotate');
-    const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'request_new_thread',arguments:{correlationId:turn.correlation.correlationId,reason:'context long'}}});
+    const requested=await post(`${bridge.endpoint()}/mcp`,token,{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'new_thread',arguments:{correlationId:turn.correlation.correlationId,reason:'context long'}}});
     assert.match((await requested.json()).result.content[0].text,/"requested":true/);
+    await bridge.reply(turn.correlation.correlationId,'done');
     const rotate=await rotateMessage;
     assert.equal(rotate.childId,'kid1');
     assert.equal(rotate.correlation.correlationId,turn.correlation.correlationId);
-    socket.send(JSON.stringify({type:'thread.rotated',childId:'kid1',correlation:rotate.correlation}));
-    await bridge.reply(turn.correlation.correlationId,'done');
     await turnPromise;
   }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('new_thread uses NeoY-style callback after exactly-once external delivery',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-external-'));
+  const replies=[];
+  const rotations=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,
+    children:[{id:'kid1'}],
+    host:'127.0.0.1',
+    port:0,
+    replyToDiscord:async value=>replies.push(value),
+    requestNewThread:async value=>rotations.push(value),
+  }).start();
+  try{
+    const turn=bridge.beginExternalTurn({childId:'kid1',origin:{channelId:'c',messageId:'m1'}});
+    const list=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:1,method:'tools/list'});
+    assert.deepEqual((await list.json()).result.tools.map(tool=>tool.name),['reply_to_discord','new_thread']);
+    const requested=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'new_thread',arguments:{correlationId:turn.correlationId,reason:'context long'}}});
+    assert.match((await requested.json()).result.content[0].text,/"after":"final_reply"/);
+    assert.equal(rotations.length,0);
+    const delivered=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'reply_to_discord',arguments:{correlationId:turn.correlationId,text:'answer',final:true}}});
+    assert.equal((await delivered.json()).result.isError,undefined);
+    assert.equal(replies.length,1);
+    assert.equal(rotations.length,1);
+    const duplicate=await bridge.reply(turn.correlationId,'fallback',{final:true});
+    assert.equal(duplicate.duplicate,true);
+    assert.equal(replies.length,1);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
 
 test('Discord callback verifies bot membership when OAuth client secret is unavailable',async()=>{
