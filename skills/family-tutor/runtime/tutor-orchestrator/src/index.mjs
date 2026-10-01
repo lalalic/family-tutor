@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { ChannelType, Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { loadConfig } from './config.mjs';
@@ -22,6 +23,53 @@ const instanceDir=path.resolve(path.dirname(config.configPath),'..');
 const backend=new CodexBackend(config.codex,{instanceDir});
 
 const setupGreetingFile=path.join(instanceDir,'.setup-greetings.json');
+const bootstrapControlPort=Number(process.env.FAMILY_TUTOR_BOOTSTRAP_PORT||43118);
+let bootstrapControlServer=null;
+
+function titleFromChannel(name){
+  return String(name||'').split(/[-_ ]+/).filter(Boolean).map(part=>part.slice(0,1).toUpperCase()+part.slice(1)).join(' ');
+}
+function discoverFamilyFromGuild(guild){
+  const text=[...guild.channels.cache.values()]
+    .filter(channel=>channel.type===ChannelType.GuildText)
+    .sort((a,b)=>(a.rawPosition??a.position??0)-(b.rawPosition??b.position??0)||a.name.localeCompare(b.name));
+  const exactParent=/^(?:parents?|parent[-_ ]?(?:chat|room|channel)?)$/i;
+  const parent=text.find(channel=>exactParent.test(channel.name))||text.find(channel=>/parent/i.test(channel.name))||null;
+  const reserved=/^(?:general|random|welcome|rules|announcements?|bot|bots?|tutor|family-tutor)$/i;
+  const sameCategory=parent?.parentId?text.filter(channel=>channel.parentId===parent.parentId):text;
+  let candidates=sameCategory.filter(channel=>channel.id!==parent?.id&&!reserved.test(channel.name)&&!/parent/i.test(channel.name));
+  if(!candidates.length&&sameCategory!==text) candidates=text.filter(channel=>channel.id!==parent?.id&&!reserved.test(channel.name)&&!/parent/i.test(channel.name));
+  const children=candidates.map(channel=>({
+    id:childIdFromName(channel.name),
+    name:titleFromChannel(channel.name),
+    channelId:channel.id,
+    channelName:channel.name,
+  })).filter(child=>child.id);
+  return {
+    discovery:parent&&children.length?'automatic':'needs_review',
+    parent:parent?{channelId:parent.id,channelName:parent.name}:null,
+    children,
+  };
+}
+function applyDiscoveredFamily(family){
+  if(family.discovery!=='automatic') return false;
+  const existing=new Map(config.children.map(child=>[child.id,child]));
+  config.discord={...(config.discord||{}),parentChannelId:family.parent.channelId};
+  config.children=family.children.map(child=>({
+    ...(existing.get(child.id)||{}),
+    id:child.id,
+    name:existing.get(child.id)?.name||child.name,
+  }));
+  persistConfig();
+  return true;
+}
+function logicalFamily(family){
+  return {
+    discovery:family.discovery,
+    parent:family.parent?{channelName:family.parent.channelName}:null,
+    children:family.children.map(child=>({id:child.id,name:child.name,channelName:child.channelName})),
+  };
+}
 function loadGreetingState(){ try{return JSON.parse(fs.readFileSync(setupGreetingFile,'utf8'));}catch{return {parent:false,children:{}};} }
 function saveGreetingState(state){ const tmp=`${setupGreetingFile}.tmp`; fs.writeFileSync(tmp,`${JSON.stringify(state,null,2)}\n`,{mode:0o600}); fs.renameSync(tmp,setupGreetingFile); }
 async function discordSetupStatus(){
@@ -299,6 +347,54 @@ async function ensureNeoYTutorLearners(status){
   return [...bindings.values()];
 }
 
+async function finalizeBootstrapForGuild({guildId,sessionId}){
+  if(!client.isReady()) throw new Error('Discord client is not ready yet.');
+  const guild=await client.guilds.fetch(String(guildId||''));
+  await guild.channels.fetch();
+  const family=discoverFamilyFromGuild(guild);
+  if(family.discovery!=='automatic'){
+    return {status:'needs_review',sessionId,family:logicalFamily(family)};
+  }
+  applyDiscoveredFamily(family);
+  let bindings=[];
+  if(neoyTutor){
+    const status=await neoyTutor.status();
+    bindings=await ensureNeoYTutorLearners(status);
+  }
+  const greetings=await sendSetupGreetings();
+  return {
+    status:'ready',
+    sessionId,
+    family:logicalFamily(family),
+    learners:bindings.map(binding=>({learner:binding.learner,projectReady:Boolean(binding.project_id&&binding.thread_url)})),
+    greetings,
+  };
+}
+
+function startBootstrapControl(){
+  if(bootstrapControlServer) return bootstrapControlServer;
+  bootstrapControlServer=http.createServer(async(req,res)=>{
+    const url=new URL(req.url||'/',`http://${req.headers.host||'127.0.0.1'}`);
+    const send=(status,body)=>{const text=JSON.stringify(body);res.writeHead(status,{'content-type':'application/json; charset=utf-8','content-length':Buffer.byteLength(text),'cache-control':'no-store'});res.end(text);};
+    if(req.method==='GET'&&url.pathname==='/health') return send(200,{ok:true,service:'family-tutor-bootstrap-control'});
+    if(req.method==='POST'&&url.pathname==='/bootstrap/discover'){
+      let raw=''; for await(const chunk of req){raw+=chunk;if(raw.length>256*1024){res.destroy();return;}}
+      try{
+        const body=raw?JSON.parse(raw):{};
+        if(!body.guild_id) return send(400,{error:'guild_id_required'});
+        const result=await finalizeBootstrapForGuild({guildId:body.guild_id,sessionId:body.session_id||null});
+        return send(result.status==='ready'?200:409,result);
+      }catch(error){
+        console.error('[family-tutor] bootstrap discovery failed',error);
+        return send(500,{error:String(error?.message||error)});
+      }
+    }
+    return send(404,{error:'not_found'});
+  });
+  bootstrapControlServer.listen(bootstrapControlPort,'127.0.0.1',()=>console.log(`[family-tutor-orchestrator] bootstrap control listening on http://127.0.0.1:${bootstrapControlPort}`));
+  return bootstrapControlServer;
+}
+
 function childChannelFor(message,child){
   return message.guild?.channels?.cache?.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id)||null;
 }
@@ -437,9 +533,11 @@ if(!neoyTutor&&config.browserBridge?.enabled){
   await browserBridge.start();
   console.log(`[family-tutor-orchestrator] ChatGPT browser bridge listening on ${browserBridge.endpoint()}`);
 }
+startBootstrapControl();
 for(const signal of ['SIGINT','SIGTERM']){
   process.once(signal,async()=>{
     try{ await browserBridge?.stop(); }catch(error){ console.error('[family-tutor] browser bridge shutdown failed',error); }
+    try{ bootstrapControlServer?.close(); }catch{}
     client.destroy();
     process.exit(0);
   });
