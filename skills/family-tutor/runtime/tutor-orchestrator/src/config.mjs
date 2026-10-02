@@ -9,6 +9,11 @@ export function loadConfig(file){
   if(!cfg.discord||typeof cfg.discord!=='object') cfg.discord={parentChannelId:''};
   if(typeof cfg.discord.parentChannelId!=='string') cfg.discord.parentChannelId='';
   if(cfg.codex?.backend!=='codex') throw new Error(`Unsupported codex backend: ${cfg.codex?.backend}`);
+  if(cfg.browserWorkspace?.enabled){
+    const workspace=String(cfg.browserWorkspace.workspace||'Tutor').trim();
+    if(!workspace) throw new Error('browserWorkspace.workspace must be non-empty');
+    cfg.browserWorkspace={...cfg.browserWorkspace,enabled:true,workspace};
+  }
   if(cfg.neoyTutor?.enabled){
     const url=String(cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp');
     let parsed;

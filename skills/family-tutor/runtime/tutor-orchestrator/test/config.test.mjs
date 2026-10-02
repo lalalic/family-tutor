@@ -41,3 +41,15 @@ test('continues to accept explicit legacy browserBridge config',async()=>{
   assert.equal(cfg.browserBridge.enabled,true);
   await fs.rm(dir,{recursive:true,force:true});
 });
+
+test('accepts Browser Workspace Tutor config and defaults workspace',async()=>{
+  const {file}=await writeConfig({...base(),browserWorkspace:{enabled:true}});
+  const cfg=loadConfig(file);
+  assert.equal(cfg.browserWorkspace.enabled,true);
+  assert.equal(cfg.browserWorkspace.workspace,'Tutor');
+});
+
+test('rejects blank Browser Workspace Tutor workspace',async()=>{
+  const {file}=await writeConfig({...base(),browserWorkspace:{enabled:true,workspace:'   '}});
+  assert.throws(()=>loadConfig(file),/browserWorkspace\.workspace must be non-empty/);
+});

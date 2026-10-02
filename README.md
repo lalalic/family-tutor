@@ -94,9 +94,9 @@ node skills/family-tutor/scripts/doctor.mjs runs/family
 node skills/family-tutor/scripts/service.mjs start runs/family
 ```
 
-New private/local instances use NeoY Tutor Workspace by default. On startup the orchestrator automatically ensures one ChatGPT Project and initial thread per learner. It uses the skill-local `bootstrap/latest.md` and `setup/learner-profile-template.md`; no website and no Family Tutor Chrome extension are required. Existing browserBridge-based instances remain supported only as a legacy migration path.
+New private/local instances use the `browser-workspace` skill by default. On startup the Family Tutor service ensures the dependency is installed and prepares the product-owned `Tutor` workspace, then automatically ensures one ChatGPT Project and initial thread per learner through the skill's ChatGPT platform actions. It uses the skill-local `bootstrap/latest.md` and `setup/learner-profile-template.md`; no website and no Family Tutor Chrome extension are required. Existing `browserBridge` and `neoyTutor` instances remain supported only as migration paths.
 
-Never commit real family configuration, learner details, transcripts, tokens, or runtime state. There is no learner `AGENTS.md` in the NeoY path. ChatGPT Project-only memory and the persistent learner thread provide continuity; NeoY stores only project/thread/browser binding metadata.
+Never commit real family configuration, learner details, transcripts, tokens, or runtime state. There is no learner `AGENTS.md` in the Browser Workspace path. ChatGPT Project-only memory and the persistent learner thread provide continuity; Family Tutor stores only learner/project/thread binding metadata.
 
 ## Commercial deployment boundary
 

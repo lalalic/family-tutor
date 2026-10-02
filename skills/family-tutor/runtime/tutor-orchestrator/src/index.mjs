@@ -6,6 +6,7 @@ import { loadConfig } from './config.mjs';
 import { CodexBackend } from './backends/codex.mjs';
 import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
 import { NeoYTutorClient } from './neoy-tutor.mjs';
+import { BrowserWorkspaceTutorClient } from './browser-workspace-tutor.mjs';
 import { collectImageAttachments, understandImages } from './vision.mjs';
 import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
 import { reactToReceivedChildMessage } from './discord-reactions.mjs';
@@ -141,7 +142,8 @@ async function deleteKid({childId}){
 const queues=new Map();
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
 let browserBridge=null;
-let neoyTutor=null;
+let tutorClient=null;
+let tutorTransport=null;
 
 function turnPrompt(child,message,correlationId=null){ return buildKidContext({childName:child.name,text:message,correlationId}); }
 function parseTutorText(text){
@@ -155,8 +157,8 @@ function parseTutorText(text){
 }
 async function applyTutorSideEffects(child,parsed){
   if(parsed.rollover){
-    if(neoyTutor){
-      await neoyTutor.resetThread({
+    if(tutorClient){
+      await tutorClient.resetThread({
         learner:child.id,
         projectName:child.name||child.id,
         instructions:await tutorProjectInstructions(child),
@@ -199,7 +201,7 @@ async function sendAssistantOutputs(channel,outputs=[]){
     }
   }
 }
-async function handleNeoYChildMessage(message,child){
+async function handleTutorChildMessage(message,child){
   const incoming=message.content.trim();
   const attachments=collectAttachments(message);
   if(!incoming && !attachments.length) return;
@@ -225,7 +227,7 @@ ${voiceTranscript}
   });
   let result;
   try{
-    result=await neoyTutor.turn({
+    result=await tutorClient.turn({
       learner:child.id,
       prompt:turnPrompt(child,studentMessage,turn.correlationId),
       attachments:nonAudioAttachments,
@@ -334,12 +336,12 @@ async function tutorProjectInstructions(child){
   return `${profile}\n\n---\n\n${bootstrap}`;
 }
 
-async function ensureNeoYTutorLearners(status){
+async function ensureTutorLearners(status){
   const bindings=new Map((status?.bindings||[]).map(binding=>[binding.learner,binding]));
   for(const child of config.children){
     const existing=bindings.get(child.id);
     if(existing?.project_id && existing?.thread_url) continue;
-    const result=await neoyTutor.setup({
+    const result=await tutorClient.setup({
       learner:child.id,
       projectName:child.name||child.id,
       instructions:await tutorProjectInstructions(child),
@@ -352,7 +354,7 @@ async function ensureNeoYTutorLearners(status){
       thread_url:result.thread_url,
       target_id:result.target_id,
     });
-    console.log(`[family-tutor-orchestrator] NeoY Tutor initialized ${child.id} in ChatGPT Project ${result.project_id} (${result.project_reused?'reused':'created'})`);
+    console.log(`[family-tutor-orchestrator] Tutor initialized ${child.id} in ChatGPT Project ${result.project_id} (${result.project_reused?'reused':'created'})`);
   }
   return [...bindings.values()];
 }
@@ -373,9 +375,9 @@ async function finalizeBootstrapForGuild({guildId,sessionId}){
   }
   applyDiscoveredFamily(family);
   let bindings=[];
-  if(neoyTutor){
-    const status=await neoyTutor.status();
-    bindings=await ensureNeoYTutorLearners(status);
+  if(tutorClient){
+    const status=await tutorClient.status();
+    bindings=await ensureTutorLearners(status);
   }
   const greetings=await sendSetupGreetings();
   return {
@@ -414,7 +416,7 @@ function childChannelFor(message,child){
   return message.guild?.channels?.cache?.find(channel=>channel.type===ChannelType.GuildText&&channel.name===child.id)||null;
 }
 async function runParentTurn(message,child,prompt,{attachments=[]}={}){
-  if(neoyTutor){
+  if(tutorClient){
     const turn=browserBridge.beginExternalTurn({
       childId:child.id,
       origin:{channelId:message.channelId,messageId:message.id,threadId:null},
@@ -429,7 +431,7 @@ async function runParentTurn(message,child,prompt,{attachments=[]}={}){
     );
     let result;
     try{
-      result=await neoyTutor.turn({learner:child.id,prompt:correlatedPrompt,attachments});
+      result=await tutorClient.turn({learner:child.id,prompt:correlatedPrompt,attachments});
     }catch(error){
       await browserBridge.fail(turn.correlationId,error).catch(()=>{});
       throw error;
@@ -469,8 +471,8 @@ async function handleParentControl(message){
 
 async function statusForChild(child){
   const prompt=buildSlashStatusPrompt({child,memory:''});
-  if(neoyTutor){
-    const result=await neoyTutor.turn({learner:child.id,prompt,attachments:[]});
+  if(tutorClient){
+    const result=await tutorClient.turn({learner:child.id,prompt,attachments:[]});
     return formatSlashStatus(child,result.text);
   }
   if(browserBridge){
@@ -521,8 +523,8 @@ client.on(Events.MessageCreate,message=>{
   if(child){
     try{validateChildChannel(child,message.channel);}catch(error){console.error('[family-tutor] child channel configuration error',error); message.reply(error.message).catch(()=>{}); return;}
     reactToReceivedChildMessage(message,child.id);
-    const handler=neoyTutor?handleNeoYChildMessage:(browserBridge?handleBrowserChildMessage:handleChildMessage);
-    serialize(child.id,()=>browserBridge&&!neoyTutor?handler(message,child,browserBridge):handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
+    const handler=tutorClient?handleTutorChildMessage:(browserBridge?handleBrowserChildMessage:handleChildMessage);
+    serialize(child.id,()=>browserBridge&&!tutorClient?handler(message,child,browserBridge):handler(message,child)).catch(error=>{console.error(`[family-tutor] ${child.id} turn failed`,error); message.reply('The tutor is temporarily unavailable. Please try again shortly.').catch(()=>{});});
     return;
   }
   if(config.discord.parentChannelId && message.channelId===config.discord.parentChannelId){
@@ -531,21 +533,31 @@ client.on(Events.MessageCreate,message=>{
     serialize(key,()=>handleParentControl(message)).catch(error=>{console.error('[family-tutor] parent control failed',error); message.reply(error.message.includes('configuration error')?error.message:'Parent control is temporarily unavailable.').catch(()=>{});});
   }
 });
-if(config.neoyTutor?.enabled){
-  neoyTutor=new NeoYTutorClient({
+if(config.browserWorkspace?.enabled){
+  tutorClient=new BrowserWorkspaceTutorClient({
+    instanceDir,
+    workspace:config.browserWorkspace.workspace||'Tutor',
+  });
+  tutorTransport='browser-workspace';
+  const status=await tutorClient.status();
+  const bindings=await ensureTutorLearners(status);
+  console.log(`[family-tutor-orchestrator] Browser Workspace Tutor ready in ${config.browserWorkspace.workspace||'Tutor'} with ${bindings.length} learner binding(s)`);
+}else if(config.neoyTutor?.enabled){
+  tutorClient=new NeoYTutorClient({
     url:config.neoyTutor.url||'http://127.0.0.1:6767/mcp',
     instanceDir,
   });
-  const status=await neoyTutor.status();
-  const bindings=await ensureNeoYTutorLearners(status);
-  console.log(`[family-tutor-orchestrator] NeoY Tutor connected at ${config.neoyTutor.url||'http://127.0.0.1:6767/mcp'} with ${bindings.length} learner binding(s)`);
+  tutorTransport='legacy-neoy';
+  const status=await tutorClient.status();
+  const bindings=await ensureTutorLearners(status);
+  console.log(`[family-tutor-orchestrator] Legacy NeoY Tutor connected at ${config.neoyTutor.url||'http://127.0.0.1:6767/mcp'} with ${bindings.length} learner binding(s)`);
 }
-if(neoyTutor||config.browserBridge?.enabled){
+if(tutorClient||config.browserBridge?.enabled){
   browserBridge=new BrowserBridge({
     instanceDir,
     children:config.children,
-    host:config.browserBridge.host||'127.0.0.1',
-    port:config.browserBridge.port||43117,
+    host:config.browserBridge?.host||'127.0.0.1',
+    port:config.browserBridge?.port||43117,
     token:process.env.FAMILY_TUTOR_BRIDGE_TOKEN?.trim()||null,
     replyToDiscord:async({origin,text})=>{
       const channel=await client.channels.fetch(origin.channelId);
@@ -558,16 +570,16 @@ if(neoyTutor||config.browserBridge?.enabled){
       if(!channel?.isTextBased()) throw new Error('Discord channel is unavailable');
       await sendChunks(channel,text);
     },
-    requestNewThread:neoyTutor?async({childId,reason})=>{
+    requestNewThread:tutorClient?async({childId,reason})=>{
       const child=config.children.find(candidate=>candidate.id===childId);
       if(!child) throw new Error('unknown child');
-      await neoyTutor.resetThread({
+      await tutorClient.resetThread({
         learner:child.id,
         projectName:child.name||child.id,
         instructions:await tutorProjectInstructions(child),
         initialPrompt:'Start a fresh Family Tutor thread for '+(child.name||child.id)+'. Use the Project Instructions. Reply only with READY.',
       });
-      console.log('[family-tutor-orchestrator] NeoY Tutor started fresh thread for '+child.id+': '+(reason||'context_long'));
+      console.log('[family-tutor-orchestrator] Tutor started fresh thread for '+child.id+': '+(reason||'context_long'));
     }:null,
     addChild:addKid,
     deleteChild:deleteKid,
@@ -575,7 +587,7 @@ if(neoyTutor||config.browserBridge?.enabled){
     finishSetup:sendSetupGreetings,
   });
   await browserBridge.start();
-  console.log('[family-tutor-orchestrator] Family Tutor MCP listening on '+browserBridge.endpoint()+(neoyTutor?' (NeoY transport)':' (legacy browser transport)'));
+  console.log('[family-tutor-orchestrator] Family Tutor MCP listening on '+browserBridge.endpoint()+(tutorClient?` (${tutorTransport} transport)`:' (legacy browser transport)'));
 }
 startBootstrapControl();
 for(const signal of ['SIGINT','SIGTERM']){
