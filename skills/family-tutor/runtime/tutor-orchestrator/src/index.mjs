@@ -203,9 +203,7 @@ async function sendAssistantOutputs(channel,outputs=[]){
   }
 }
 
-async function ingestServerlessDiscordMessage({channelName,messageId,content='',attachments=[]}={}){
-  const child=config.children.find(candidate=>candidate.id===String(channelName||''));
-  if(!child) return {ignored:true,reason:'unconfigured_channel'};
+async function ingestServerlessDiscordMessage({channelId='',channelName,messageId,content='',attachments=[],mentionedChannels=[]}={}){
   const safeAttachments=(Array.isArray(attachments)?attachments:[]).slice(0,4).map((a,index)=>({
     url:String(a?.url||''),
     name:String(a?.name||`attachment-${index+1}`),
@@ -214,10 +212,53 @@ async function ingestServerlessDiscordMessage({channelName,messageId,content='',
   })).filter(a=>a.url);
   const incoming=String(content||'').trim();
   if(!incoming&&!safeAttachments.length) return {ignored:true,reason:'empty_message'};
+
   const audioAttachments=safeAttachments.filter(isAudioAttachment);
   const nonAudioAttachments=safeAttachments.filter(a=>!isAudioAttachment(a));
   let voiceTranscript=null;
   if(audioAttachments.length) voiceTranscript=await transcribeAudioAttachments(audioAttachments);
+
+  if(String(channelId||'')===String(config.discord?.parentChannelId||'')){
+    const mentioned=(Array.isArray(mentionedChannels)?mentionedChannels:[])
+      .map(item=>({id:String(item?.id||''),name:String(item?.name||'').trim()}))
+      .filter(item=>item.id&&item.name);
+    let child=null;
+    let mentionId='';
+    for(const item of mentioned){
+      const candidate=findChildByChannelName(config.children,item.name);
+      if(candidate){
+        if(child&&child.id!==candidate.id) return {ignored:false,role:'parent',messageId:String(messageId||''),text:'Mention one configured child channel.'};
+        child=candidate; mentionId=item.id;
+      }
+    }
+    if(!child){
+      const normalized=incoming.replace(/[\u200b-\u200f\u2060\ufeff]/g,' ').toLowerCase();
+      const matches=config.children.filter(candidate=>new RegExp(`(^|[^a-z0-9_-])#?${candidate.id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9_-]|$)`,'i').test(normalized));
+      if(matches.length===1) child=matches[0];
+    }
+    if(!child) return {ignored:false,role:'parent',messageId:String(messageId||''),text:'Mention one child channel naturally, for example: `how is #sammy doing recently?`'};
+
+    let normalizedMessage=incoming;
+    if(mentionId) normalizedMessage=renderParentNaturalText(incoming,mentionId,child.id,mentionId);
+    else normalizedMessage=normalizedMessage.replace(new RegExp(`#?${child.id}`,'i'),`@${child.id}`);
+    const contextMessage=[normalizedMessage,voiceTranscript].filter(Boolean).join('\n\n');
+    if(!contextMessage&&!nonAudioAttachments.length) return {ignored:false,role:'parent',childId:child.id,messageId:String(messageId||''),text:'Please include the question or guidance.'};
+    const prompt=buildParentContextPrompt({text:contextMessage});
+    const result=await tutorClient.turn({learner:child.id,prompt,attachments:nonAudioAttachments});
+    const parsed=parseTutorText(result.text);
+    await applyTutorSideEffects(child,parsed);
+    return {
+      ignored:false,
+      role:'parent',
+      childId:child.id,
+      messageId:String(messageId||''),
+      text:parsed.childText||result.text,
+      rollover:Boolean(parsed.rollover),
+    };
+  }
+
+  const child=config.children.find(candidate=>candidate.id===String(channelName||''));
+  if(!child) return {ignored:true,reason:'unconfigured_channel'};
   const voiceBlock=voiceTranscript?`[VOICE MESSAGE TRANSCRIPT — preserve the student's spoken meaning; do not judge grammar or writing quality from this transcript]\n${voiceTranscript}\n[/VOICE MESSAGE TRANSCRIPT]`:'';
   const studentMessage=[incoming,voiceBlock].filter(Boolean).join('\n\n')||'Please help me understand the attached file(s).';
   const result=await tutorClient.turn({
@@ -229,6 +270,7 @@ async function ingestServerlessDiscordMessage({channelName,messageId,content='',
   await applyTutorSideEffects(child,parsed);
   return {
     ignored:false,
+    role:'kid',
     childId:child.id,
     messageId:String(messageId||''),
     text:parsed.childText||result.text,
