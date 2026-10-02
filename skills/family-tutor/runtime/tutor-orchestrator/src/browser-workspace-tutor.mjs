@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 function sanitizeName(value='attachment'){
@@ -34,13 +35,15 @@ function runProcess(command,args,{input='',env=process.env,timeoutMs=360000}={})
 }
 
 export class BrowserWorkspaceTutorClient {
-  constructor({instanceDir,workspace='Tutor',plugin='Family Tutor',skillRoot,fetchImpl=fetch,run=runProcess}={}){
+  constructor({instanceDir,workspace='Tutor',plugin='Family Tutor',skillRoot,browserWorkspaceCommand,loadAdmin=async helperPath=>import(pathToFileURL(helperPath).href),fetchImpl=fetch,run=runProcess}={}){
     if(!instanceDir) throw new Error('BrowserWorkspaceTutorClient requires instanceDir');
     this.instanceDir=instanceDir;
     this.workspace=workspace;
     this.plugin=plugin;
-    this.skillRoot=skillRoot||path.join(os.homedir(),'.agents','skills','browser-workspace');
-    this.cli=path.join(this.skillRoot,'bin','browser-workspace');
+    this.skillRoot=skillRoot||null;
+    this.cli=browserWorkspaceCommand||process.env.BROWSER_WORKSPACE_COMMAND||(skillRoot?path.join(skillRoot,'bin','browser-workspace'):'browser-workspace');
+    this.loadAdmin=loadAdmin;
+    this.admin=null;
     this.stateDir=path.join(instanceDir,'.family-tutor');
     this.bindingsFile=path.join(this.stateDir,'browser-workspace-bindings.json');
     this.fetch=fetchImpl;
@@ -92,10 +95,15 @@ export class BrowserWorkspaceTutorClient {
 
   async start(){
     if(this.started) return this.status();
-    if(!fs.existsSync(this.cli)) throw new Error(`browser-workspace CLI not installed: ${this.cli}`);
+    if(path.isAbsolute(this.cli) && !fs.existsSync(this.cli)) throw new Error(`browser-workspace CLI not installed: ${this.cli}`);
     const state=await this.#loadState();
     const size=Math.max(5,Object.keys(state.bindings).length);
-    await this.run(this.cli,['workspace','create',this.workspace,'--size',String(size)],{timeoutMs:60000});
+    const status=parseJSONLine((await this.run(this.cli,['status'],{timeoutMs:60000})).stdout,'browser-workspace status');
+    if(typeof status.admin_helper!=='string'||!path.isAbsolute(status.admin_helper)) throw new Error('browser-workspace status returned no absolute admin_helper path');
+    const admin=await this.loadAdmin(status.admin_helper);
+    if(typeof admin?.ensureWorkspace!=='function'||typeof admin?.deleteWorkspace!=='function') throw new Error('browser-workspace admin helper is missing workspace lifecycle exports');
+    await admin.ensureWorkspace(this.workspace,size);
+    this.admin=admin;
     this.started=true;
     try{
       for(const learner of Object.keys(state.bindings)) await this.#ensureLearnerSession(learner);
@@ -111,7 +119,9 @@ export class BrowserWorkspaceTutorClient {
     this.sessions.clear();
     this.started=false;
     await Promise.allSettled(ids.map(sessionId=>this.run(this.cli,['session','stop',sessionId],{timeoutMs:30000})));
-    await this.run(this.cli,['workspace','delete',this.workspace,'--force'],{timeoutMs:30000}).catch(()=>{});
+    const admin=this.admin;
+    this.admin=null;
+    if(admin?.deleteWorkspace) await admin.deleteWorkspace(this.workspace,{force:true}).catch(()=>{});
     return {stopped:ids.length,workspace:this.workspace};
   }
 
