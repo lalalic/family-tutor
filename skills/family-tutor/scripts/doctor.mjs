@@ -9,8 +9,6 @@ let failed=false;
 function check(ok,msg){console.log(`${ok?'✓':'✗'} ${msg}`); if(!ok) failed=true;}
 
 check(fs.existsSync(configPath),`config exists: ${configPath}`);
-check(Boolean(process.env.DISCORD_BOT_TOKEN),'DISCORD_BOT_TOKEN is exported');
-
 let cfg=null;
 if(fs.existsSync(configPath)){
   try{
@@ -19,6 +17,8 @@ if(fs.existsSync(configPath)){
     check(Array.isArray(cfg.children)&&cfg.children.every(c=>c.id&&c.name),'every child has canonical id and name');
     check(Array.isArray(cfg.children)&&cfg.children.every(c=>!Object.keys(c).some(key=>/project|tab|discordChannelId/i.test(key))),'children keep no browser/provider bindings');
     check(Boolean(cfg.discord?.parentChannelId),'parent channel id is configured');
+    if((cfg.discord?.mode||'cloudflare')==='local') check(Boolean(process.env.DISCORD_BOT_TOKEN),'DISCORD_BOT_TOKEN is exported for local Discord mode');
+    else check(true,'Discord transport is managed by Cloudflare');
   }catch(error){
     check(false,`config parses: ${error.message}`);
   }

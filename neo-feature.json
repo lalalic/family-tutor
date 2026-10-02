@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "family-tutor",
+  "name": "Family Tutor",
+  "description": "Persistent family AI tutor with separate learner context, Browser Workspace-backed ChatGPT sessions, Discord routing, and parent learning telemetry.",
+  "version": "0.2.0",
+  "runtime": {
+    "type": "node",
+    "serviceScript": "skills/family-tutor/scripts/service.mjs",
+    "initScript": "skills/family-tutor/scripts/init-instance.mjs",
+    "doctorScript": "skills/family-tutor/scripts/doctor.mjs",
+    "defaultInstance": "instance"
+  },
+  "mcp": {
+    "provider": "family-tutor",
+    "endpointFromConfig": "browserBridge",
+    "defaultHost": "127.0.0.1",
+    "defaultPort": 43117
+  },
+  "setup": {
+    "required": true,
+    "bootstrap": "feature/setup/bootstrap.md",
+    "manual": "feature/setup/manual.md",
+    "mode": "chatgpt-temporary-thread"
+  },
+  "remote": {
+    "default": false
+  }
+}
