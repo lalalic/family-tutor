@@ -16,8 +16,10 @@ import { buildKidContext } from './runtime-context.mjs';
 const configFile=process.env.FAMILY_TUTOR_CONFIG;
 if(!configFile) throw new Error('FAMILY_TUTOR_CONFIG is required');
 const config=loadConfig(configFile);
-const discordToken=process.env.DISCORD_BOT_TOKEN?.trim();
-if(!discordToken) throw new Error('DISCORD_BOT_TOKEN is required');
+const discordMode=config.discord.mode||'cloudflare';
+const localDiscord=discordMode==='local';
+const discordToken=process.env.DISCORD_BOT_TOKEN?.trim()||'';
+if(localDiscord&&!discordToken) throw new Error('DISCORD_BOT_TOKEN is required when discord.mode=local');
 
 const instanceDir=path.resolve(path.dirname(config.configPath),'..');
 const backend=new CodexBackend(config.codex,{instanceDir});
@@ -200,6 +202,41 @@ async function sendAssistantOutputs(channel,outputs=[]){
     }
   }
 }
+
+async function ingestServerlessDiscordMessage({channelName,messageId,content='',attachments=[]}={}){
+  const child=config.children.find(candidate=>candidate.id===String(channelName||''));
+  if(!child) return {ignored:true,reason:'unconfigured_channel'};
+  const safeAttachments=(Array.isArray(attachments)?attachments:[]).slice(0,4).map((a,index)=>({
+    url:String(a?.url||''),
+    name:String(a?.name||`attachment-${index+1}`),
+    mimeType:String(a?.mimeType||''),
+    size:Number(a?.size||0),
+  })).filter(a=>a.url);
+  const incoming=String(content||'').trim();
+  if(!incoming&&!safeAttachments.length) return {ignored:true,reason:'empty_message'};
+  const audioAttachments=safeAttachments.filter(isAudioAttachment);
+  const nonAudioAttachments=safeAttachments.filter(a=>!isAudioAttachment(a));
+  let voiceTranscript=null;
+  if(audioAttachments.length) voiceTranscript=await transcribeAudioAttachments(audioAttachments);
+  const voiceBlock=voiceTranscript?`[VOICE MESSAGE TRANSCRIPT — preserve the student's spoken meaning; do not judge grammar or writing quality from this transcript]\n${voiceTranscript}\n[/VOICE MESSAGE TRANSCRIPT]`:'';
+  const studentMessage=[incoming,voiceBlock].filter(Boolean).join('\n\n')||'Please help me understand the attached file(s).';
+  const result=await tutorClient.turn({
+    learner:child.id,
+    prompt:turnPrompt(child,studentMessage),
+    attachments:nonAudioAttachments,
+  });
+  const parsed=parseTutorText(result.text);
+  await applyTutorSideEffects(child,parsed);
+  return {
+    ignored:false,
+    childId:child.id,
+    messageId:String(messageId||''),
+    text:parsed.childText||result.text,
+    parentText:parsed.parentText||null,
+    rollover:Boolean(parsed.rollover),
+  };
+}
+
 async function handleTutorChildMessage(message,child){
   const incoming=message.content.trim();
   const attachments=collectAttachments(message);
@@ -549,17 +586,18 @@ if(tutorClient||config.browserBridge?.enabled){
     host:config.browserBridge?.host||'127.0.0.1',
     port:config.browserBridge?.port||43117,
     token:process.env.FAMILY_TUTOR_BRIDGE_TOKEN?.trim()||null,
-    replyToDiscord:async({origin,text})=>{
+    replyToDiscord:localDiscord?async({origin,text})=>{
       const channel=await client.channels.fetch(origin.channelId);
       if(!channel?.isTextBased()) throw new Error('originating Discord channel is unavailable');
       const original=await channel.messages.fetch(origin.messageId);
       await replyToMessage(original,text);
-    },
-    sendToDiscord:async({channelId,text})=>{
+    }:null,
+    sendToDiscord:localDiscord?async({channelId,text})=>{
       const channel=await client.channels.fetch(channelId);
       if(!channel?.isTextBased()) throw new Error('Discord channel is unavailable');
       await sendChunks(channel,text);
-    },
+    }:null,
+    ingestDiscord:ingestServerlessDiscordMessage,
     requestNewThread:tutorClient?async({childId,reason})=>{
       const child=config.children.find(candidate=>candidate.id===childId);
       if(!child) throw new Error('unknown child');
@@ -571,21 +609,26 @@ if(tutorClient||config.browserBridge?.enabled){
       });
       console.log('[family-tutor-orchestrator] Tutor started fresh thread for '+child.id+': '+(reason||'context_long'));
     }:null,
-    addChild:addKid,
-    deleteChild:deleteKid,
-    getSetupStatus:discordSetupStatus,
-    finishSetup:sendSetupGreetings,
+    addChild:localDiscord?addKid:null,
+    deleteChild:localDiscord?deleteKid:null,
+    getSetupStatus:localDiscord?discordSetupStatus:null,
+    finishSetup:localDiscord?sendSetupGreetings:null,
   });
   await browserBridge.start();
   console.log('[family-tutor-orchestrator] Family Tutor MCP listening on '+browserBridge.endpoint()+(tutorClient?` (${tutorTransport} transport)`:' (legacy browser transport)'));
 }
-startBootstrapControl();
+if(localDiscord){
+  startBootstrapControl();
+  console.log('[family-tutor-orchestrator] Discord transport: local gateway');
+}else{
+  console.log('[family-tutor-orchestrator] Discord transport: Cloudflare serverless');
+}
 for(const signal of ['SIGINT','SIGTERM']){
   process.once(signal,async()=>{
     try{ await browserBridge?.stop(); }catch(error){ console.error('[family-tutor] browser bridge shutdown failed',error); }
     try{ bootstrapControlServer?.close(); }catch{}
-    client.destroy();
+    if(localDiscord) client.destroy();
     process.exit(0);
   });
 }
-await client.login(discordToken);
+if(localDiscord) await client.login(discordToken);

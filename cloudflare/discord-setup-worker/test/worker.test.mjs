@@ -7,3 +7,14 @@ test("validSession accepts NeoY bootstrap ids only", () => {
   assert.equal(__test.validSession("abc"), false);
   assert.equal(__test.validSession("../bootstrap-test"), false);
 });
+
+import { normalizeDiscordAttachment } from "../src/gateway.mjs";
+
+test("normalizes Discord attachments for Family Tutor ingress", () => {
+  assert.deepEqual(normalizeDiscordAttachment({ url: "https://cdn.discordapp.com/a.png", filename: "a.png", content_type: "image/png", size: 42 }), {
+    url: "https://cdn.discordapp.com/a.png",
+    name: "a.png",
+    mimeType: "image/png",
+    size: 42,
+  });
+});

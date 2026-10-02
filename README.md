@@ -78,10 +78,12 @@ Start the integrated hosted process with:
 npm run start:product
 ```
 
-The deployer provides `FAMILY_TUTOR_PROVIDER_MODULE`; that trusted provider is
-the shared Discord bot boundary and supplies outbound `send()` plus optional
-inbound `start({onMessage})`. The same process serves `/mcp`, `/extension`,
-`/healthz`, and `/readyz`.
+The default Discord bot boundary is serverless on Cloudflare. The
+`cloudflare/discord-setup-worker` Worker owns Discord install/OAuth and outbound
+REST delivery; its `DiscordGateway` Durable Object owns the Discord Gateway
+WebSocket and forwards `MESSAGE_CREATE` events through the authenticated NeoY
+MCP endpoint. NeoY federates the loopback-only Family Tutor MCP locally, so the
+Tutor MCP itself does not need a second authentication layer.
 
 ## Private local instance
 
@@ -94,7 +96,7 @@ node skills/family-tutor/scripts/doctor.mjs runs/family
 node skills/family-tutor/scripts/service.mjs start runs/family
 ```
 
-New private/local instances use the `browser-workspace` skill by default. On startup the Family Tutor service ensures the dependency is installed and prepares the product-owned `Tutor` workspace, then automatically ensures one ChatGPT Project and initial thread per learner through the skill's ChatGPT platform actions. It uses the skill-local `bootstrap/latest.md` and `setup/learner-profile-template.md`; no website and no Family Tutor Chrome extension are required. Existing `browserBridge` instances remain supported only as a migration path; old `neoyTutor` config is automatically migrated to Browser Workspace semantics.
+New private/local instances use the `browser-workspace` skill and `discord.mode: "cloudflare"` by default. On startup the local Family Tutor service ensures Browser Workspace is installed, prepares the product-owned `Tutor` workspace, and exposes a loopback-only MCP provider for NeoY federation. Discord Gateway connectivity and the Discord bot token live on Cloudflare, not in the local PM2 process. Existing `browserBridge` and `discord.mode: "local"` instances remain migration paths; old `neoyTutor` config is automatically migrated to Browser Workspace semantics.
 
 Never commit real family configuration, learner details, transcripts, tokens, or runtime state. There is no learner `AGENTS.md` in the Browser Workspace path. ChatGPT Project-only memory and the persistent learner thread provide continuity; Family Tutor stores only learner/project/thread binding metadata.
 

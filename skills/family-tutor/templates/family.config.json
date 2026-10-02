@@ -6,6 +6,7 @@
     "maxRuntimeSeconds": 600
   },
   "discord": {
+    "mode": "cloudflare",
     "parentChannelId": ""
   },
   "children": [],

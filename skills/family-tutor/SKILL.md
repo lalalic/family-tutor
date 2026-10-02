@@ -12,7 +12,7 @@ Create a family tutoring system in which each child has one independent persiste
 Capability tree:
 
 1. initialize a private family-tutor instance;
-2. bind one persistent ChatGPT thread per learner in NeoY;
+2. bind one persistent ChatGPT thread per learner in Family Tutor state;
 3. route Discord messages deterministically to the correct learner;
 4. apply tutoring behavior that teaches rather than simply answers;
 5. provide parent observation and control without indiscriminate transcript mirroring;
@@ -23,7 +23,7 @@ Capability tree:
 ## Primary workflow
 
 1. Create an instance from `templates/` or use `scripts/init-instance.mjs`.
-2. Configure canonical child ids/names, the parent Discord channel, and `browserWorkspace.enabled: true` with workspace `Tutor`.
+2. Configure canonical child ids/names, `discord.mode: "cloudflare"`, and `browserWorkspace.enabled: true` with workspace `Tutor`.
 3. Start the orchestrator. The Family Tutor skill bootstraps its `browser-workspace` dependency. For any learner without a binding, the orchestrator uses Browser Workspace's ChatGPT `project-setup` action to reuse or create that learner's ChatGPT Project, apply the canonical local bootstrap + learner profile instructions, enable Project-only memory where available, create the initial thread, and bind it.
 4. Run `scripts/doctor.mjs <instance-dir>`. It must verify that the browser-workspace skill/CLI, `Tutor` workspace, and ChatGPT platform actions are available.
 5. Install/start the orchestrator with `scripts/service.mjs start <instance-dir>`.
@@ -60,7 +60,9 @@ Read `references/parent-observation.md` when configuring the parent channel or r
 
 ## Runtime boundary
 
-The bundled `runtime/tutor-orchestrator` is the long-lived Family Tutor service. It owns Discord transport, exact child routing, serialized per-child queues, durable-memory handoff, retries/failure reporting, parent transport/telemetry, and service lifecycle.
+The bundled `runtime/tutor-orchestrator` is the long-lived local Tutor service. It owns exact child routing, serialized per-child turns, Browser Workspace/ChatGPT execution, learner bindings, rollover, and the loopback Family Tutor MCP. By default it does **not** own a Discord Gateway connection.
+
+Discord transport is serverless: `cloudflare/discord-setup-worker` owns the Discord bot token, install/OAuth flow, Gateway WebSocket in a Durable Object, and outbound Discord REST calls. It calls Family Tutor only through the authenticated NeoY MCP gateway. `discord.mode: "local"` exists only as a migration fallback.
 
 Browser Workspace owns the browser runtime. Family Tutor uses the installed skill CLI from:
 
@@ -86,7 +88,7 @@ node scripts/service.mjs stop <instance-dir>
 
 ## Safety and privacy
 
-- Never commit Discord tokens, browser credentials, child transcripts, or runtime state.
+- Never commit Discord tokens, NeoY tokens, browser credentials, child transcripts, or runtime state. Discord and NeoY gateway tokens belong in Cloudflare secrets.
 - A child channel must map to exactly one child.
 - A tutor thread must map to exactly one child.
 - Parent control commands must come only from the configured parent control channel.

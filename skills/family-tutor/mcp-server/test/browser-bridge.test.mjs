@@ -194,7 +194,7 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     const listed=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/list',params:{}})});
     const listedBody=await listed.json();
     assert.equal(listedBody.result.tools[0].name,'reply_to_discord');
-    assert.deepEqual(listedBody.result.tools[0].securitySchemes,[{type:'oauth2',scopes:['tutor']}]);
+    assert.equal(listedBody.result.tools[0].securitySchemes,undefined);
   }finally{await bridge.stop(); fs.rmSync(root,{recursive:true,force:true});}
 });
 
@@ -518,7 +518,7 @@ test('new_thread uses NeoY-style callback after exactly-once external delivery',
   try{
     const turn=bridge.beginExternalTurn({childId:'kid1',origin:{channelId:'c',messageId:'m1'}});
     const list=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:1,method:'tools/list'});
-    assert.deepEqual((await list.json()).result.tools.map(tool=>tool.name),['reply_to_discord','new_thread']);
+    assert.deepEqual((await list.json()).result.tools.map(tool=>tool.name),['reply_to_discord','new_thread','ingest_discord_message']);
     const requested=await post(`${bridge.endpoint()}/mcp`,bridge.token,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'new_thread',arguments:{correlationId:turn.correlationId,reason:'context long'}}});
     assert.match((await requested.json()).result.content[0].text,/"after":"final_reply"/);
     assert.equal(rotations.length,0);
@@ -772,4 +772,21 @@ test('rejects non-loopback MCP host',()=>{
   try{
     assert.throws(()=>new BrowserBridge({instanceDir:root,children:[],host:'0.0.0.0',port:0}),/must be loopback/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('serverless Discord ingress is exposed as a loopback MCP tool',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-serverless-ingress-'));
+  const seen=[];
+  const bridge=await new BrowserBridge({
+    instanceDir:root,children:[{id:'sammy',name:'Sammy'}],host:'127.0.0.1',port:0,
+    ingestDiscord:async value=>{seen.push(value);return {ignored:false,childId:'sammy',text:'hello from tutor'};},
+  }).start();
+  try{
+    const response=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'ingest_discord_message',arguments:{channelName:'sammy',messageId:'m1',content:'hi',attachments:[]}}})});
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.match(body.result.content[0].text,/hello from tutor/);
+    assert.deepEqual(seen,[{channelName:'sammy',messageId:'m1',content:'hi',attachments:[]}]);
+  }finally{await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
 });

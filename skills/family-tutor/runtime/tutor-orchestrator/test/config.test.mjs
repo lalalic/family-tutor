@@ -49,3 +49,25 @@ test('rejects blank Browser Workspace Tutor workspace',async()=>{
   const {file}=await writeConfig({...base(),browserWorkspace:{enabled:true,workspace:'   '}});
   assert.throws(()=>loadConfig(file),/browserWorkspace\.workspace must be non-empty/);
 });
+
+test('defaults Discord transport to Cloudflare serverless',async()=>{
+  const {dir,file}=await writeConfig(base());
+  const cfg=loadConfig(file);
+  assert.equal(cfg.discord.mode,'cloudflare');
+  await fs.rm(dir,{recursive:true,force:true});
+});
+
+test('accepts explicit local Discord transport',async()=>{
+  const value=base(); value.discord={...(value.discord||{}),mode:'local'};
+  const {dir,file}=await writeConfig(value);
+  const cfg=loadConfig(file);
+  assert.equal(cfg.discord.mode,'local');
+  await fs.rm(dir,{recursive:true,force:true});
+});
+
+test('rejects unknown Discord transport',async()=>{
+  const value=base(); value.discord={...(value.discord||{}),mode:'socket'};
+  const {dir,file}=await writeConfig(value);
+  assert.throws(()=>loadConfig(file),/discord\.mode must be local or cloudflare/);
+  await fs.rm(dir,{recursive:true,force:true});
+});

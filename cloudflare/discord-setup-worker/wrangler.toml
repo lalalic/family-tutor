@@ -10,6 +10,18 @@ enabled = true
 name = "SESSIONS"
 class_name = "SetupSession"
 
+[[durable_objects.bindings]]
+name = "DISCORD_GATEWAY"
+class_name = "DiscordGateway"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SetupSession"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DiscordGateway"]
+
+[vars]
+NEOY_MCP_URL = "https://neoy.qili2.com/mcp"
+FAMILY_TUTOR_MCP_TOOL = "mcp.family-tutor.ingest_discord_message"

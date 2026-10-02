@@ -1,3 +1,4 @@
+export { DiscordGateway } from './gateway.mjs';
 const DEFAULT_CLIENT_ID = "1489316184578068755";
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const PERMISSIONS = "68608";
@@ -110,7 +111,12 @@ export default {
     const origin = publicOrigin(request, env);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "family-tutor-discord-setup" });
+      let gateway = null;
+      if (env.DISCORD_GATEWAY && env.DISCORD_BOT_TOKEN && env.NEOY_MCP_TOKEN) {
+        const response = await env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary")).fetch("https://gateway/start", { method: "POST" });
+        gateway = await response.json();
+      }
+      return json({ ok: true, service: "family-tutor-discord", gateway });
     }
 
     if (request.method === "GET" && url.pathname === "/connect") {
@@ -159,6 +165,9 @@ export default {
         body: JSON.stringify({ guildId }),
       }));
       if (!completed.ok) return completionHtml(false, "The setup session expired. Start again from NeoY.");
+      if (env.DISCORD_GATEWAY) {
+        await env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary")).fetch("https://gateway/start", { method: "POST" });
+      }
       return completionHtml(true, "The Family Tutor bot was connected. NeoY will continue setup automatically.");
     }
 

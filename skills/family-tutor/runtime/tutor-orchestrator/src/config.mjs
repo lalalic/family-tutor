@@ -8,6 +8,8 @@ export function loadConfig(file){
   if(!Array.isArray(cfg.children)) throw new Error('children must be an array');
   if(!cfg.discord||typeof cfg.discord!=='object') cfg.discord={parentChannelId:''};
   if(typeof cfg.discord.parentChannelId!=='string') cfg.discord.parentChannelId='';
+  cfg.discord.mode=String(cfg.discord.mode||'cloudflare').trim().toLowerCase();
+  if(!['local','cloudflare'].includes(cfg.discord.mode)) throw new Error('discord.mode must be local or cloudflare');
   if(cfg.codex?.backend!=='codex') throw new Error(`Unsupported codex backend: ${cfg.codex?.backend}`);
   if(cfg.neoyTutor?.enabled && !cfg.browserWorkspace?.enabled){
     cfg.browserWorkspace={enabled:true,workspace:'Tutor'};
