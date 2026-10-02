@@ -9,6 +9,7 @@
     "check:extension": "node --check skills/family-tutor/extension/background.js && node --check skills/family-tutor/extension/content.js && node --check skills/family-tutor/extension/popup.js && node --check skills/family-tutor/extension/setup.js && node --test skills/family-tutor/extension/test/*.test.mjs",
     "start:product": "node packages/integration/src/server.mjs",
     "check:cloudflare-asr": "node --check cloudflare/asr-worker/src/index.js",
-    "package:extension": "node scripts/package-extension.mjs"
+    "package:extension": "node scripts/package-extension.mjs",
+    "verify:hosted-activation": "node scripts/verify-hosted-activation.mjs"
   }
 }

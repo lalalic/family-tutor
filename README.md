@@ -51,7 +51,8 @@ recovery behavior; [`docs/operations.md`](docs/operations.md) covers deployment,
 state, logging, backup, and incidents. Pilot execution is in
 [`docs/launch-checklist.md`](docs/launch-checklist.md) and
 [`docs/support-runbook.md`](docs/support-runbook.md); privacy communication is
-in [`docs/privacy-consent.md`](docs/privacy-consent.md).
+in [`docs/privacy-consent.md`](docs/privacy-consent.md). Hosted activation is
+gated by [`docs/hosted-activation.md`](docs/hosted-activation.md).
 
 ## Development and verification
 
