@@ -8,7 +8,7 @@ test("validSession accepts NeoY bootstrap ids only", () => {
   assert.equal(__test.validSession("../bootstrap-test"), false);
 });
 
-import { normalizeDiscordAttachment } from "../src/gateway.mjs";
+import { discordSnowflakeTimestamp, normalizeDiscordAttachment } from "../src/gateway.mjs";
 
 test("normalizes Discord attachments for Family Tutor ingress", () => {
   assert.deepEqual(normalizeDiscordAttachment({ url: "https://cdn.discordapp.com/a.png", filename: "a.png", content_type: "image/png", size: 42 }), {
@@ -17,4 +17,11 @@ test("normalizes Discord attachments for Family Tutor ingress", () => {
     mimeType: "image/png",
     size: 42,
   });
+});
+
+
+test("decodes Discord snowflake timestamps", () => {
+  const now=Date.now();
+  const snowflake=((BigInt(now-1420070400000)<<22n)).toString();
+  assert.ok(Math.abs(discordSnowflakeTimestamp(snowflake)-now)<2);
 });

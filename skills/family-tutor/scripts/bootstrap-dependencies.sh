@@ -21,4 +21,10 @@ if [[ ! -x "$BW_CLI" ]]; then
   exit 1
 fi
 
+
+if [[ -x "$BW_DIR/scripts/install.sh" ]]; then
+  BH_WORKSPACE_NAME="Tutor" BH_WORKSPACE_POOL_SIZE="5" "$BW_DIR/scripts/install.sh"
+fi
+
+"$BW_CLI" workspace create Tutor --size 5 >/dev/null
 echo "Family Tutor dependency ready: $BW_CLI"

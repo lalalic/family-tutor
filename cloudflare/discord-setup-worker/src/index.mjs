@@ -106,6 +106,11 @@ function stateStub(env, state) {
 }
 
 export default {
+  async scheduled(_event, env, ctx) {
+    if (!env.DISCORD_GATEWAY || !env.DISCORD_BOT_TOKEN || !env.NEOY_MCP_TOKEN) return;
+    const stub = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("poller-v1"));
+    ctx.waitUntil(stub.fetch("https://gateway/poll", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force: true, windowMs: 5 * 60 * 1000 }) }));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = publicOrigin(request, env);
@@ -113,9 +118,9 @@ export default {
     if (request.method === "GET" && url.pathname === "/health") {
       let gateway = null;
       if (env.DISCORD_GATEWAY && env.DISCORD_BOT_TOKEN && env.NEOY_MCP_TOKEN) {
-        const stub = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary"));
-        await stub.fetch("https://gateway/start", { method: "POST" });
-        gateway = await (await stub.fetch("https://gateway/status")).json();
+        const stub = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("poller-v1"));
+        const poll = await stub.fetch("https://gateway/poll", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force: false }) });
+        gateway = await poll.json();
       }
       return json({ ok: true, service: "family-tutor-discord", gateway });
     }
@@ -166,9 +171,6 @@ export default {
         body: JSON.stringify({ guildId }),
       }));
       if (!completed.ok) return completionHtml(false, "The setup session expired. Start again from NeoY.");
-      if (env.DISCORD_GATEWAY) {
-        await env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary")).fetch("https://gateway/start", { method: "POST" });
-      }
       return completionHtml(true, "The Family Tutor bot was connected. NeoY will continue setup automatically.");
     }
 
