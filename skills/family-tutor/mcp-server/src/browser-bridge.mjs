@@ -60,6 +60,7 @@ export class BrowserBridge {
     this.blobRoot=blobDir||path.join(this.root,'blobs');
     this.tokenFile=path.join(this.root,'token');
     this.children=new Map(children.map(child=>[child.id,{id:child.id,name:child.name||child.id}]));
+    if(!['127.0.0.1','localhost','::1'].includes(host)) throw new Error('Family Tutor MCP host must be loopback');
     this.host=host;
     this.port=Number(port);
     this.fetchImpl=fetchImpl;
@@ -888,7 +889,6 @@ export class BrowserBridge {
       catch(error){return json(res,400,{error:String(error?.message||error)});}
     }
     if(req.method==='POST'&&url.pathname==='/mcp'){
-      if(!this.#mcpAuthorized(req)) return json(res,401,{error:'unauthorized'},{'www-authenticate':this.#oauthChallenge()});
       const response=await this.#mcp(await readJson(req));
       if(response===null){res.writeHead(202);return res.end();}
       return json(res,200,response);

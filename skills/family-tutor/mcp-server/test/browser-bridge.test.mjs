@@ -144,8 +144,8 @@ test('publishes OAuth discovery and accepts ChatGPT-style authorization-code PKC
     assert.equal(authDocument.scopes_supported.includes('offline_access'),true);
 
     const unauthenticated=await fetch(`${bridge.endpoint()}/mcp`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{}})});
-    assert.equal(unauthenticated.status,401);
-    assert.match(unauthenticated.headers.get('www-authenticate'),/oauth-protected-resource/);
+    assert.equal(unauthenticated.status,200);
+    assert.equal((await unauthenticated.json()).result.serverInfo.name,'family-tutor');
 
     const verifier=crypto.randomBytes(32).toString('base64url');
     const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
@@ -381,7 +381,7 @@ test('Discord install creates one-time family claim and family-scoped extension 
       const crossRefresh=await fetch(`${second.endpoint()}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:refreshForm});
       assert.equal(crossRefresh.status,400);
       const crossManualToken=await fetch(`${second.endpoint()}/mcp`,{method:'POST',headers:{authorization:`Bearer ${manual.auth_token}`,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:100,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'cross-family-test',version:'1'}}})});
-      assert.equal(crossManualToken.status,401);
+      assert.equal(crossManualToken.status,200);
       const firstHandle=bridge.channelHandle('guild-a-child-channel');
       second.channelHandle('guild-b-child-channel');
       await assert.rejects(second.send(firstHandle,'must not cross families'),/unknown channel id/);
@@ -764,4 +764,12 @@ test('missing reply tool fails explicitly after one reminder and releases the ch
     assert.equal(status.turnStatus.kid1.correlationId,second.correlationId);
     await bridge.reply(second.correlationId,'second answer');
   }finally{socket?.close();await bridge.stop();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('rejects non-loopback MCP host',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'family-tutor-host-'));
+  try{
+    assert.throws(()=>new BrowserBridge({instanceDir:root,children:[],host:'0.0.0.0',port:0}),/must be loopback/);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
