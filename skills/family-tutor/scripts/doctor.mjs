@@ -24,13 +24,13 @@ if(fs.existsSync(configPath)){
   }
 }
 
-if(cfg?.browserWorkspace?.enabled){
+if(cfg?.browserWorkspace?.enabled||cfg?.neoyTutor?.enabled){
   const cli=path.join(process.env.HOME||'', '.agents','skills','browser-workspace','bin','browser-workspace');
   check(fs.existsSync(cli),'browser-workspace skill is installed');
   if(fs.existsSync(cli)){
     const help=spawnSync(cli,['--help'],{encoding:'utf8',timeout:10000});
     check(help.status===0,'browser-workspace CLI is runnable');
-    const workspace=String(cfg.browserWorkspace.workspace||'Tutor');
+    const workspace=String(cfg.browserWorkspace?.workspace||'Tutor');
     const started=spawnSync(cli,['session','start','--workspace',workspace],{encoding:'utf8',timeout:30000});
     let sessionId=null;
     if(started.status===0){
@@ -41,22 +41,6 @@ if(cfg?.browserWorkspace?.enabled){
     const root=path.resolve(path.dirname(cli),'..');
     check(fs.existsSync(path.join(root,'platforms','chatgpt','actions','_project_setup.py')),'ChatGPT project-setup action is installed');
     check(fs.existsSync(path.join(root,'platforms','chatgpt','actions','_thread_turn.py')),'ChatGPT thread-turn action is installed');
-  }
-}else if(cfg?.neoyTutor?.enabled){
-  const url=cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp';
-  try{
-    const response=await fetch(url,{
-      method:'POST',
-      headers:{'content-type':'application/json'},
-      body:JSON.stringify({jsonrpc:'2.0',id:'doctor',method:'tools/list',params:{}}),
-      signal:AbortSignal.timeout(5000),
-    });
-    const body=await response.json();
-    const tools=body?.result?.tools||[];
-    check(response.ok,'legacy NeoY MCP is reachable');
-    check(tools.some(tool=>tool?.name==='tutor.workspace'),'legacy NeoY exposes tutor.workspace');
-  }catch(error){
-    check(false,`legacy NeoY tutor is reachable: ${error.message}`);
   }
 }else{
   const executable=spawnSync('codex',['--version'],{encoding:'utf8',timeout:5000});

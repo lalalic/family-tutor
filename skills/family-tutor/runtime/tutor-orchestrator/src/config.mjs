@@ -9,18 +9,14 @@ export function loadConfig(file){
   if(!cfg.discord||typeof cfg.discord!=='object') cfg.discord={parentChannelId:''};
   if(typeof cfg.discord.parentChannelId!=='string') cfg.discord.parentChannelId='';
   if(cfg.codex?.backend!=='codex') throw new Error(`Unsupported codex backend: ${cfg.codex?.backend}`);
+  if(cfg.neoyTutor?.enabled && !cfg.browserWorkspace?.enabled){
+    cfg.browserWorkspace={enabled:true,workspace:'Tutor'};
+  }
+  delete cfg.neoyTutor;
   if(cfg.browserWorkspace?.enabled){
     const workspace=String(cfg.browserWorkspace.workspace||'Tutor').trim();
     if(!workspace) throw new Error('browserWorkspace.workspace must be non-empty');
     cfg.browserWorkspace={...cfg.browserWorkspace,enabled:true,workspace};
-  }
-  if(cfg.neoyTutor?.enabled){
-    const url=String(cfg.neoyTutor.url||'http://127.0.0.1:6767/mcp');
-    let parsed;
-    try{ parsed=new URL(url); }catch{ throw new Error('neoyTutor.url must be a valid URL'); }
-    if(parsed.protocol!=='http:'||!['127.0.0.1','localhost','::1'].includes(parsed.hostname)||parsed.pathname!=='/mcp'){
-      throw new Error('neoyTutor.url must be a loopback http://.../mcp URL');
-    }
   }
   if(cfg.browserBridge?.enabled){
     const host=cfg.browserBridge.host||'127.0.0.1';

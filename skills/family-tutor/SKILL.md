@@ -30,7 +30,7 @@ Capability tree:
 6. Verify the real Discord path with distinct per-child probes and confirm each reply returns to the correct child channel without cross-child leakage.
 7. Verify the parent learning channel receives concise learning telemetry rather than routine transcript mirroring.
 
-The old Family Tutor Chrome extension is not required for the Browser Workspace path. Existing `browserBridge.enabled` and `neoyTutor.enabled` configurations remain migration-only compatibility paths.
+The old Family Tutor Chrome extension is not required for the Browser Workspace path. Existing `browserBridge.enabled` configurations remain a migration-only compatibility path. Old `neoyTutor.enabled` configs are automatically interpreted as Browser Workspace `Tutor` configs; Family Tutor no longer calls NeoY for browser work.
 
 ## Tutor behavior contract
 
@@ -70,7 +70,7 @@ $HOME/.agents/skills/browser-workspace/bin/browser-workspace
 
 The orchestrator uses the product-owned `Tutor` workspace and executes the skill's ChatGPT `project-setup` and `thread-turn` actions. Each action runs inside a leased Browser Workspace session and releases that session afterward. Durable continuity comes from ChatGPT Project/thread URLs, not a permanently open tab.
 
-For migration only, `neoyTutor.enabled` may still call the removed historical `tutor.workspace` surface on an older NeoY installation. Do not use it for new installations.
+For migration, an old `neoyTutor.enabled` config is mapped in memory to `browserWorkspace.enabled: true` with workspace `Tutor`. There is no runtime call to NeoY `tutor.workspace`.
 
 ## Service lifecycle
 

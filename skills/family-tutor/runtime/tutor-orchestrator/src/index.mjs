@@ -5,7 +5,6 @@ import { ChannelType, Client, Events, GatewayIntentBits, REST, Routes, SlashComm
 import { loadConfig } from './config.mjs';
 import { CodexBackend } from './backends/codex.mjs';
 import { BrowserBridge } from '../../../mcp-server/src/browser-bridge.mjs';
-import { NeoYTutorClient } from './neoy-tutor.mjs';
 import { BrowserWorkspaceTutorClient } from './browser-workspace-tutor.mjs';
 import { collectImageAttachments, understandImages } from './vision.mjs';
 import { isAudioAttachment, transcribeAudioAttachments } from './asr.mjs';
@@ -542,15 +541,6 @@ if(config.browserWorkspace?.enabled){
   const status=await tutorClient.status();
   const bindings=await ensureTutorLearners(status);
   console.log(`[family-tutor-orchestrator] Browser Workspace Tutor ready in ${config.browserWorkspace.workspace||'Tutor'} with ${bindings.length} learner binding(s)`);
-}else if(config.neoyTutor?.enabled){
-  tutorClient=new NeoYTutorClient({
-    url:config.neoyTutor.url||'http://127.0.0.1:6767/mcp',
-    instanceDir,
-  });
-  tutorTransport='legacy-neoy';
-  const status=await tutorClient.status();
-  const bindings=await ensureTutorLearners(status);
-  console.log(`[family-tutor-orchestrator] Legacy NeoY Tutor connected at ${config.neoyTutor.url||'http://127.0.0.1:6767/mcp'} with ${bindings.length} learner binding(s)`);
 }
 if(tutorClient||config.browserBridge?.enabled){
   browserBridge=new BrowserBridge({

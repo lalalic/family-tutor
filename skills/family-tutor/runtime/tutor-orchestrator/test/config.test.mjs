@@ -22,16 +22,12 @@ function base(){
   };
 }
 
-test('accepts loopback NeoY Tutor MCP config',async()=>{
+test('migrates obsolete neoyTutor config to Browser Workspace Tutor',async()=>{
   const {dir,file}=await writeConfig({...base(),neoyTutor:{enabled:true,url:'http://127.0.0.1:6767/mcp'}});
   const cfg=loadConfig(file);
-  assert.equal(cfg.neoyTutor.enabled,true);
-  await fs.rm(dir,{recursive:true,force:true});
-});
-
-test('rejects non-loopback NeoY Tutor MCP config',async()=>{
-  const {dir,file}=await writeConfig({...base(),neoyTutor:{enabled:true,url:'https://example.com/mcp'}});
-  assert.throws(()=>loadConfig(file),/loopback/);
+  assert.equal(cfg.browserWorkspace.enabled,true);
+  assert.equal(cfg.browserWorkspace.workspace,'Tutor');
+  assert.equal(cfg.neoyTutor,undefined);
   await fs.rm(dir,{recursive:true,force:true});
 });
 
