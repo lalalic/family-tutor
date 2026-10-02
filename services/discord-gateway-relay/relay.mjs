@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 
 const DISCORD_API='https://discord.com/api/v10';
 const NEOY_URL=process.env.NEOY_MCP_URL||'https://neoy.qili2.com/mcp';
@@ -56,9 +57,35 @@ async function callTutor(message,ctx){
   const text=rpc.result?.content?.find(x=>x.type==='text')?.text||'{}';
   return JSON.parse(text);
 }
-async function reply(message,text){
-  await discord(`/channels/${message.channel_id}/messages`,{method:'POST',body:JSON.stringify({content:String(text).slice(0,2000),message_reference:{message_id:message.id,fail_if_not_exists:false}})});
+async function replyToOrigin({channelId,messageId,text}){
+  let remaining=String(text||'').trim();
+  let first=true;
+  while(remaining){
+    let split=remaining.length>1900?remaining.lastIndexOf('\n',1900):remaining.length;
+    if(split<800&&remaining.length>1900) split=1900;
+    const chunk=remaining.slice(0,split);
+    const body={content:chunk};
+    if(first&&messageId) body.message_reference={message_id:String(messageId),fail_if_not_exists:false};
+    await discord(`/channels/${encodeURIComponent(channelId)}/messages`,{method:'POST',body:JSON.stringify(body)});
+    remaining=remaining.slice(split).trimStart(); first=false;
+  }
 }
+async function reply(message,text){ return replyToOrigin({channelId:message.channel_id,messageId:message.id,text}); }
+const RELAY_PORT=Number(process.env.FAMILY_TUTOR_DISCORD_RELAY_PORT||43119);
+const relayServer=http.createServer(async(req,res)=>{
+  if(req.method!=='POST'||req.url!=='/reply'){res.writeHead(404);res.end('not found');return;}
+  let raw=''; for await(const chunk of req) raw+=chunk;
+  try{
+    const body=JSON.parse(raw||'{}');
+    if(!body.channelId||!body.text) throw new Error('channelId and text are required');
+    await replyToOrigin(body);
+    res.writeHead(200,{'content-type':'application/json'}); res.end(JSON.stringify({ok:true}));
+  }catch(error){
+    res.writeHead(400,{'content-type':'application/json'}); res.end(JSON.stringify({ok:false,error:String(error?.message||error)}));
+  }
+});
+relayServer.listen(RELAY_PORT,'127.0.0.1',()=>log('reply_server_ready',{port:RELAY_PORT}));
+
 const seen=new Map();
 async function handle(message){
   if(!message?.id||message.author?.bot||seen.has(message.id)) return;

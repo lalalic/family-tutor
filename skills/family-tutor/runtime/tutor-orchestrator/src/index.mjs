@@ -171,6 +171,11 @@ async function applyTutorSideEffects(child,parsed){
   }
 }
 async function sendChunks(channel,text){ let remaining=text; while(remaining.length>1900){let split=remaining.lastIndexOf('\n',1900); if(split<800) split=1900; await channel.send(remaining.slice(0,split)); remaining=remaining.slice(split).trimStart();} if(remaining) await channel.send(remaining); }
+async function sendViaDiscordRelay({channelId,messageId=null,text}){
+  const response=await fetch('http://127.0.0.1:43119/reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channelId,messageId,text}),signal:AbortSignal.timeout(15000)});
+  if(!response.ok) throw new Error(`Discord relay reply failed (${response.status}): ${await response.text()}`);
+  return response.json();
+}
 function collectAttachments(message){
   return [...message.attachments.values()].slice(0,4).map(a=>({
     url:a.url,
@@ -212,6 +217,7 @@ async function ingestServerlessDiscordMessage({channelId='',channelName,messageI
   })).filter(a=>a.url);
   const incoming=String(content||'').trim();
   if(!incoming&&!safeAttachments.length) return {ignored:true,reason:'empty_message'};
+  if(!tutorClient||!browserBridge) throw new Error('Family Tutor browser transport is not ready');
 
   const audioAttachments=safeAttachments.filter(isAudioAttachment);
   const nonAudioAttachments=safeAttachments.filter(a=>!isAudioAttachment(a));
@@ -243,40 +249,30 @@ async function ingestServerlessDiscordMessage({channelId='',channelName,messageI
     else normalizedMessage=normalizedMessage.replace(new RegExp(`#?${child.id}`,'i'),`@${child.id}`);
     const contextMessage=[normalizedMessage,voiceTranscript].filter(Boolean).join('\n\n');
     if(!contextMessage&&!nonAudioAttachments.length) return {ignored:false,role:'parent',childId:child.id,messageId:String(messageId||''),text:'Please include the question or guidance.'};
-    const prompt=buildParentContextPrompt({text:contextMessage});
-    const result=await tutorClient.turn({learner:child.id,prompt,attachments:nonAudioAttachments});
-    const parsed=parseTutorText(result.text);
-    await applyTutorSideEffects(child,parsed);
-    return {
-      ignored:false,
-      role:'parent',
-      childId:child.id,
-      messageId:String(messageId||''),
-      text:parsed.childText||result.text,
-      rollover:Boolean(parsed.rollover),
-    };
+    const turn=browserBridge.beginExternalTurn({childId:child.id,origin:{channelId:String(channelId),messageId:String(messageId||''),threadId:null}});
+    const prompt=buildParentContextPrompt({text:contextMessage,correlationId:turn.correlationId});
+    try{
+      const submitted=await tutorClient.submit({learner:child.id,prompt,attachments:nonAudioAttachments});
+      return {ignored:false,role:'parent',childId:child.id,messageId:String(messageId||''),correlationId:turn.correlationId,submitted:true,submission:submitted.status||'submitted'};
+    }catch(error){
+      await browserBridge.fail(turn.correlationId,error).catch(()=>{});
+      throw error;
+    }
   }
 
   const child=config.children.find(candidate=>candidate.id===String(channelName||''));
   if(!child) return {ignored:true,reason:'unconfigured_channel'};
   const voiceBlock=voiceTranscript?`[VOICE MESSAGE TRANSCRIPT — preserve the student's spoken meaning; do not judge grammar or writing quality from this transcript]\n${voiceTranscript}\n[/VOICE MESSAGE TRANSCRIPT]`:'';
   const studentMessage=[incoming,voiceBlock].filter(Boolean).join('\n\n')||'Please help me understand the attached file(s).';
-  const result=await tutorClient.turn({
-    learner:child.id,
-    prompt:turnPrompt(child,studentMessage),
-    attachments:nonAudioAttachments,
-  });
-  const parsed=parseTutorText(result.text);
-  await applyTutorSideEffects(child,parsed);
-  return {
-    ignored:false,
-    role:'kid',
-    childId:child.id,
-    messageId:String(messageId||''),
-    text:parsed.childText||result.text,
-    parentText:parsed.parentText||null,
-    rollover:Boolean(parsed.rollover),
-  };
+  const turn=browserBridge.beginExternalTurn({childId:child.id,origin:{channelId:String(channelId),messageId:String(messageId||''),threadId:null}});
+  const prompt=turnPrompt(child,studentMessage,turn.correlationId);
+  try{
+    const submitted=await tutorClient.submit({learner:child.id,prompt,attachments:nonAudioAttachments});
+    return {ignored:false,role:'kid',childId:child.id,messageId:String(messageId||''),correlationId:turn.correlationId,submitted:true,submission:submitted.status||'submitted'};
+  }catch(error){
+    await browserBridge.fail(turn.correlationId,error).catch(()=>{});
+    throw error;
+  }
 }
 
 async function handleTutorChildMessage(message,child){
@@ -418,20 +414,14 @@ async function ensureTutorLearners(status){
   const bindings=new Map((status?.bindings||[]).map(binding=>[binding.learner,binding]));
   for(const child of config.children){
     const existing=bindings.get(child.id);
-    if(existing?.project_id && existing?.thread_url) continue;
+    if(existing?.project_id && existing?.thread_id) continue;
     const result=await tutorClient.setup({
       learner:child.id,
       projectName:child.name||child.id,
       instructions:await tutorProjectInstructions(child),
       initialPrompt:`Initialize ${child.name||child.id}'s Family Tutor learning thread. Use the Project Instructions. Reply only with READY.`,
     });
-    bindings.set(child.id,{
-      learner:child.id,
-      project_id:result.project_id,
-      project_url:result.project_url,
-      thread_url:result.thread_url,
-      target_id:result.target_id,
-    });
+    bindings.set(child.id,{learner:child.id,project_id:result.project_id,thread_id:result.thread_id});
     console.log(`[family-tutor-orchestrator] Tutor initialized ${child.id} in ChatGPT Project ${result.project_id} (${result.project_reused?'reused':'created'})`);
   }
   return [...bindings.values()];
@@ -462,7 +452,7 @@ async function finalizeBootstrapForGuild({guildId,sessionId}){
     status:'ready',
     sessionId,
     family:logicalFamily(family),
-    learners:bindings.map(binding=>({learner:binding.learner,projectReady:Boolean(binding.project_id&&binding.thread_url)})),
+    learners:bindings.map(binding=>({learner:binding.learner,projectReady:Boolean(binding.project_id&&binding.thread_id)})),
     greetings,
   };
 }
@@ -619,7 +609,8 @@ if(config.browserWorkspace?.enabled){
   tutorTransport='browser-workspace';
   const status=await tutorClient.status();
   const bindings=await ensureTutorLearners(status);
-  console.log(`[family-tutor-orchestrator] Browser Workspace Tutor ready in ${config.browserWorkspace.workspace||'Tutor'} with ${bindings.length} learner binding(s)`);
+  await tutorClient.start();
+  console.log(`[family-tutor-orchestrator] Browser Workspace Tutor ready in ${config.browserWorkspace.workspace||'Tutor'} with ${bindings.length} learner binding(s) and long-lived learner sessions`);
 }
 if(tutorClient||config.browserBridge?.enabled){
   browserBridge=new BrowserBridge({
@@ -633,12 +624,12 @@ if(tutorClient||config.browserBridge?.enabled){
       if(!channel?.isTextBased()) throw new Error('originating Discord channel is unavailable');
       const original=await channel.messages.fetch(origin.messageId);
       await replyToMessage(original,text);
-    }:null,
+    }:async({origin,text})=>sendViaDiscordRelay({channelId:origin.channelId,messageId:origin.messageId,text}),
     sendToDiscord:localDiscord?async({channelId,text})=>{
       const channel=await client.channels.fetch(channelId);
       if(!channel?.isTextBased()) throw new Error('Discord channel is unavailable');
       await sendChunks(channel,text);
-    }:null,
+    }:async({channelId,text})=>sendViaDiscordRelay({channelId,text}),
     ingestDiscord:ingestServerlessDiscordMessage,
     requestNewThread:tutorClient?async({childId,reason})=>{
       const child=config.children.find(candidate=>candidate.id===childId);
@@ -668,6 +659,7 @@ if(localDiscord){
 for(const signal of ['SIGINT','SIGTERM']){
   process.once(signal,async()=>{
     try{ await browserBridge?.stop(); }catch(error){ console.error('[family-tutor] browser bridge shutdown failed',error); }
+    try{ await tutorClient?.stop(); }catch(error){ console.error('[family-tutor] Browser Workspace Tutor shutdown failed',error); }
     try{ bootstrapControlServer?.close(); }catch{}
     if(localDiscord) client.destroy();
     process.exit(0);

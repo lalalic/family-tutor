@@ -9,75 +9,55 @@ async function fixture(){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'ft-bw-skill-'));
   const instance=await fs.mkdtemp(path.join(os.tmpdir(),'ft-bw-instance-'));
   await fs.mkdir(path.join(root,'bin'),{recursive:true});
-  await fs.mkdir(path.join(root,'platforms','chatgpt','actions'),{recursive:true});
   await fs.writeFile(path.join(root,'bin','browser-workspace'),'#!/bin/sh\n');
   await fs.chmod(path.join(root,'bin','browser-workspace'),0o755);
-  await fs.writeFile(path.join(root,'platforms','chatgpt','actions','_project_setup.py'),'print("__CFG_PATH__")\n');
-  await fs.writeFile(path.join(root,'platforms','chatgpt','actions','_thread_turn.py'),'print("__CFG_PATH__")\n');
   return {root,instance};
 }
+function runner(handler,calls){ return async(command,args)=>{ calls.push({command,args}); return {stdout:JSON.stringify(await handler(args))+'\n',stderr:''}; }; }
+function platformResult(payload){ return {platform:'chatgpt',result:{ok:true,stdout:JSON.stringify(payload)+'\n',stderr:''}}; }
 
-function fakeRun(sequence,calls){
-  return async(command,args,options={})=>{
-    const call={command,args,input:options.input||''};
-    if(args?.[0]==='session'&&args?.[1]==='exec'){
-      const configPath=call.input.match(/print\(\"([^\"]+config\.json)\"\)/)?.[1];
-      if(configPath) call.config=JSON.parse(await fs.readFile(configPath,'utf8'));
-    }
-    calls.push(call);
-    const next=sequence.shift();
-    if(!next) throw new Error('unexpected browser-workspace invocation');
-    return {stdout:JSON.stringify(next)+'\n',stderr:''};
-  };
-}
-
-test('BrowserWorkspaceTutorClient setup persists learner binding and releases session',async()=>{
-  const {root,instance}=await fixture();
-  const calls=[];
-  const run=fakeRun([
-    {session_id:'s1',workspace:'Tutor'},
-    {ok:true,stdout:JSON.stringify({status:'completed',project_id:'p1',project_url:'https://chatgpt.com/g/p1/project',thread_url:'https://chatgpt.com/c/t1'})+'\n',stderr:''},
-    {session_id:'s1',closed_tabs:2},
-  ],calls);
+test('setup persists only project and thread ids',async()=>{
+  const {root,instance}=await fixture(); const calls=[];
+  const run=runner(async args=>platformResult({status:'completed',project_id:'p1',thread_id:'t1',thread_url:'https://chatgpt.com/g/p1/c/t1'}),calls);
   const client=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run});
   const result=await client.setup({learner:'maggie',projectName:'Maggie',instructions:'Teach well'});
-  assert.equal(result.thread_url,'https://chatgpt.com/c/t1');
-  assert.equal(calls[0].args.join(' '),'session start --workspace Tutor');
-  assert.equal(calls[1].args.join(' '),'session exec s1');
-  assert.equal(calls[1].config.instructions,'Teach well');
-  assert.equal(calls[2].args.join(' '),'session stop s1');
-  const status=await client.status();
-  assert.equal(status.bindings[0].learner,'maggie');
-  assert.equal(status.bindings[0].thread_url,'https://chatgpt.com/c/t1');
+  assert.equal(result.thread_id,'t1');
+  const persisted=JSON.parse(await fs.readFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),'utf8'));
+  assert.deepEqual(persisted,{version:2,bindings:{maggie:{learner:'maggie',project_id:'p1',thread_id:'t1'}}});
+  assert.deepEqual(calls[0].args.slice(0,4),['platform','run','chatgpt','project-setup']);
 });
 
-test('BrowserWorkspaceTutorClient turn reuses durable thread url and updates binding',async()=>{
+test('service owns learner sessions and submit reuses session',async()=>{
   const {root,instance}=await fixture();
-  const setupCalls=[];
-  const setupRun=fakeRun([
-    {session_id:'s1',workspace:'Tutor'},
-    {ok:true,stdout:JSON.stringify({status:'completed',project_id:'p1',project_url:'https://chatgpt.com/g/p1/project',thread_url:'https://chatgpt.com/c/t1'})+'\n',stderr:''},
-    {session_id:'s1',closed_tabs:1},
-  ],setupCalls);
-  const setupClient=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run:setupRun});
-  await setupClient.setup({learner:'maggie',projectName:'Maggie',instructions:'x'});
-
+  await fs.mkdir(path.join(instance,'.family-tutor'),{recursive:true});
+  await fs.writeFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),JSON.stringify({version:2,bindings:{maggie:{learner:'maggie',project_id:'p1',thread_id:'t1'}}}));
   const calls=[];
-  const run=fakeRun([
-    {session_id:'s2',workspace:'Tutor',target_id:'target-thread'},
-    {ok:true,stdout:JSON.stringify({status:'completed',thread_url:'https://chatgpt.com/c/t1',text:'Hello Maggie'})+'\n',stderr:''},
-    {session_id:'s2',closed_tabs:1},
-  ],calls);
+  const run=runner(async args=>{
+    if(args[0]==='workspace'&&args[1]==='create') return {name:'Tutor'};
+    if(args[0]==='session'&&args[1]==='start') return {session_id:'kid-session',target_id:'kid-tab'};
+    if(args[0]==='platform') return platformResult({status:'submitted',project_id:'p1',thread_id:'t1'});
+    if(args[0]==='session'&&args[1]==='stop') return {closed_tabs:1};
+    if(args[0]==='workspace'&&args[1]==='delete') return {deleted:true};
+    throw new Error(`unexpected ${args.join(' ')}`);
+  },calls);
   const client=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run});
-  const result=await client.turn({learner:'maggie',prompt:'2+2?'});
-  assert.equal(result.text,'Hello Maggie');
-  assert.deepEqual(calls[0].args,['session','start','--workspace','Tutor','--url','https://chatgpt.com/c/t1']);
-  assert.equal(calls[1].config.prompt,'2+2?');
-  assert.equal(calls[1].config.target_id,'target-thread');
+  await client.start();
+  await client.submit({learner:'maggie',prompt:'hi'});
+  const submit=calls.find(call=>call.args[0]==='platform');
+  assert.ok(submit.args.includes('--session-id'));
+  assert.equal(submit.args[submit.args.indexOf('--session-id')+1],'kid-session');
+  assert.equal(calls.filter(call=>call.args[0]==='session'&&call.args[1]==='start').length,1);
+  await client.stop();
+  assert.ok(calls.some(call=>call.args[0]==='workspace'&&call.args[1]==='delete'));
 });
 
-test('BrowserWorkspaceTutorClient rejects turn without binding',async()=>{
+test('legacy URL binding migrates to version 2 IDs',async()=>{
   const {root,instance}=await fixture();
+  await fs.mkdir(path.join(instance,'.family-tutor'),{recursive:true});
+  await fs.writeFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),JSON.stringify({version:1,bindings:{maggie:{learner:'maggie',project_id:'p1',thread_url:'https://chatgpt.com/g/p1-maggie/c/t-old',target_id:null}}}));
   const client=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run:async()=>{throw new Error('should not run')}});
-  await assert.rejects(()=>client.turn({learner:'unknown',prompt:'hi'}),/No browser-workspace Tutor binding/);
+  const status=await client.status();
+  assert.equal(status.bindings[0].thread_id,'t-old');
+  const persisted=JSON.parse(await fs.readFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),'utf8'));
+  assert.equal(persisted.version,2); assert.equal(persisted.bindings.maggie.thread_id,'t-old'); assert.equal(persisted.bindings.maggie.thread_url,undefined);
 });
