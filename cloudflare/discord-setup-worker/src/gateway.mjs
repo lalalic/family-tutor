@@ -20,7 +20,7 @@ export async function discordApi(env,path,init={}){
   return response.status===204?null:response.json();
 }
 
-export async function callNeoYTutor(env,{channelName,messageId,content,attachments}){
+export async function callNeoYTutor(env,{channelId,channelName,messageId,content,attachments,mentionedChannels=[]}){
   if(!env.NEOY_MCP_URL||!env.NEOY_MCP_TOKEN) throw new Error('NeoY MCP endpoint is not configured');
   const response=await fetch(env.NEOY_MCP_URL,{
     method:'POST',
@@ -28,7 +28,7 @@ export async function callNeoYTutor(env,{channelName,messageId,content,attachmen
     body:JSON.stringify({
       jsonrpc:'2.0',id:crypto.randomUUID(),method:'tools/call',params:{
         name:env.FAMILY_TUTOR_MCP_TOOL||'mcp.family-tutor.ingest_discord_message',
-        arguments:{channelName,messageId,content,attachments},
+        arguments:{channelId,channelName,messageId,content,attachments,mentionedChannels},
       },
     }),
   });
@@ -56,11 +56,22 @@ export async function handleDiscordMessage(env,message,{reactFirst=true}={}){
   if(!channel?.name) return {ignored:true,reason:'channel_name_unavailable'};
   if(reactFirst) await reactToDiscordMessage(env,message.channel_id,message.id).catch(error=>console.warn('discord reaction failed',error));
   console.log('discord message received',{channelName:channel.name,messageId:message.id});
+  const content=String(message.content||'');
+  const mentionIds=[...content.matchAll(/<#(\d+)>/g)].map(match=>match[1]);
+  const mentionedChannels=[];
+  for(const id of mentionIds.slice(0,4)){
+    try{
+      const mentioned=await discordApi(env,`/channels/${encodeURIComponent(id)}`);
+      if(mentioned?.name) mentionedChannels.push({id:String(mentioned.id||id),name:String(mentioned.name)});
+    }catch{}
+  }
   const tutor=await callNeoYTutor(env,{
+    channelId:String(message.channel_id),
     channelName:channel.name,
     messageId:message.id,
-    content:String(message.content||''),
+    content,
     attachments:(message.attachments||[]).map(normalizeDiscordAttachment),
+    mentionedChannels,
   });
   if(tutor?.ignored||!String(tutor?.text||'').trim()) return tutor||{ignored:true};
   if(!reactFirst) await reactToDiscordMessage(env,message.channel_id,message.id).catch(error=>console.warn('discord catch-up reaction failed',error));
@@ -82,6 +93,12 @@ export class DiscordGateway {
       await this.ensureConnected();
       if(this.sessionId) this.state.waitUntil(this.catchUpRecent());
       return Response.json({ok:true,connected:this.ws?.readyState===WebSocket.OPEN,ready:Boolean(this.sessionId),sessionId:Boolean(this.sessionId),seq:this.seq,lastEvent:this.lastEvent,lastError:this.lastError,lastCatchUpAt:this.lastCatchUpAt||null,catchUpRunning:this.catchUpRunning});
+    }
+    if(request.method==='POST'&&url.pathname==='/relay'){
+      const body=await request.json().catch(()=>null);
+      if(!body?.id) return Response.json({ok:false,error:'invalid_message'},{status:400});
+      const result=await this.processMessage(body,{reactFirst:true});
+      return Response.json({ok:true,result,lastEvent:this.lastEvent,lastError:this.lastError});
     }
     if(request.method==='POST'&&url.pathname==='/poll'){
       const body=await request.json().catch(()=>({}));
@@ -137,7 +154,15 @@ export class DiscordGateway {
         if(channel.type!==0) continue;
         let messages=[];
         try{messages=await discordApi(this.env,`/channels/${encodeURIComponent(channel.id)}/messages?limit=10`);}catch{continue;}
-        const recent=(messages||[]).filter(message=>!message.author?.bot&&discordSnowflakeTimestamp(message.id)>=cutoff).sort((a,b)=>discordSnowflakeTimestamp(a.id)-discordSnowflakeTimestamp(b.id));
+        const rows=messages||[];
+        const replied=new Set(rows.filter(message=>message.author?.bot&&message.message_reference?.message_id).map(message=>String(message.message_reference.message_id)));
+        const recent=rows.filter(message=>{
+          if(message.author?.bot||discordSnowflakeTimestamp(message.id)<cutoff||replied.has(String(message.id))) return false;
+          const relayReaction=(message.reactions||[]).some(reaction=>reaction?.me&&reaction?.emoji?.name==='🤔');
+          const age=Date.now()-discordSnowflakeTimestamp(message.id);
+          if(relayReaction&&age<2*60*1000) return false;
+          return true;
+        }).sort((a,b)=>discordSnowflakeTimestamp(a.id)-discordSnowflakeTimestamp(b.id));
         for(const message of recent){
           try{
             const result=await this.processMessage(message,{reactFirst:false});
