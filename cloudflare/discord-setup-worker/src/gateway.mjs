@@ -41,10 +41,17 @@ export async function callNeoYTutor(env,{channelName,messageId,content,attachmen
   return JSON.parse(text);
 }
 
+export async function reactToDiscordMessage(env,channelId,messageId,emoji='🤔'){
+  const encoded=encodeURIComponent(emoji);
+  return discordApi(env,`/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/reactions/${encoded}/@me`,{method:'PUT'});
+}
+
 export async function handleDiscordMessage(env,message){
   if(!message||message.author?.bot||!message.channel_id||!message.id) return {ignored:true};
   const channel=await discordApi(env,`/channels/${encodeURIComponent(message.channel_id)}`);
   if(!channel?.name) return {ignored:true,reason:'channel_name_unavailable'};
+  await reactToDiscordMessage(env,message.channel_id,message.id).catch(error=>console.warn('discord reaction failed',error));
+  console.log('discord message received',{channelName:channel.name,messageId:message.id});
   const tutor=await callNeoYTutor(env,{
     channelName:channel.name,
     messageId:message.id,
@@ -52,6 +59,7 @@ export async function handleDiscordMessage(env,message){
     attachments:(message.attachments||[]).map(normalizeDiscordAttachment),
   });
   if(tutor?.ignored||!String(tutor?.text||'').trim()) return tutor||{ignored:true};
+  console.log('family tutor replied',{channelName:channel.name,messageId:message.id,ignored:Boolean(tutor?.ignored)});
   await discordApi(env,`/channels/${encodeURIComponent(message.channel_id)}/messages`,{
     method:'POST',
     body:JSON.stringify({content:String(tutor.text).slice(0,2000),message_reference:{message_id:message.id,fail_if_not_exists:false}}),
@@ -61,16 +69,16 @@ export async function handleDiscordMessage(env,message){
 
 export class DiscordGateway {
   constructor(state,env){
-    this.state=state; this.env=env; this.ws=null; this.seq=null; this.sessionId=null; this.resumeUrl=null; this.heartbeat=null;
+    this.state=state; this.env=env; this.ws=null; this.seq=null; this.sessionId=null; this.resumeUrl=null; this.heartbeat=null; this.lastEvent=null; this.lastError=null;
   }
   async fetch(request){
     const url=new URL(request.url);
     if(request.method==='POST'&&url.pathname==='/start'){
       await this.ensureConnected();
-      return Response.json({ok:true,connected:this.ws?.readyState===WebSocket.OPEN});
+      return Response.json({ok:true,connected:this.ws?.readyState===WebSocket.OPEN,ready:Boolean(this.sessionId),sessionId:Boolean(this.sessionId),seq:this.seq,lastEvent:this.lastEvent,lastError:this.lastError});
     }
     if(request.method==='GET'&&url.pathname==='/status'){
-      return Response.json({ok:true,connected:this.ws?.readyState===WebSocket.OPEN,sessionId:Boolean(this.sessionId),seq:this.seq});
+      return Response.json({ok:true,connected:this.ws?.readyState===WebSocket.OPEN,ready:Boolean(this.sessionId),sessionId:Boolean(this.sessionId),seq:this.seq,lastEvent:this.lastEvent,lastError:this.lastError});
     }
     return new Response('not found',{status:404});
   }
@@ -108,12 +116,16 @@ export class DiscordGateway {
     if(payload.op===7){ await this.ensureConnected(true); return; }
     if(payload.op===9){ this.sessionId=null; this.resumeUrl=null; this.seq=null; await this.ensureConnected(true); return; }
     if(payload.op!==0) return;
+    this.lastEvent={type:payload.t||null,at:new Date().toISOString()};
     if(payload.t==='READY'){
       this.sessionId=payload.d?.session_id||null;
       this.resumeUrl=payload.d?.resume_gateway_url||null;
       await this.state.storage.put('gateway',{sessionId:this.sessionId,resumeUrl:this.resumeUrl,seq:this.seq});
       return;
     }
-    if(payload.t==='MESSAGE_CREATE') await handleDiscordMessage(this.env,payload.d);
+    if(payload.t==='MESSAGE_CREATE'){
+      try{ await handleDiscordMessage(this.env,payload.d); }
+      catch(error){ this.lastError=String(error?.stack||error); console.error('discord message handling failed',error); }
+    }
   }
 }

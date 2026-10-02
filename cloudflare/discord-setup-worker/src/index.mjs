@@ -113,8 +113,9 @@ export default {
     if (request.method === "GET" && url.pathname === "/health") {
       let gateway = null;
       if (env.DISCORD_GATEWAY && env.DISCORD_BOT_TOKEN && env.NEOY_MCP_TOKEN) {
-        const response = await env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary")).fetch("https://gateway/start", { method: "POST" });
-        gateway = await response.json();
+        const stub = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("primary"));
+        await stub.fetch("https://gateway/start", { method: "POST" });
+        gateway = await (await stub.fetch("https://gateway/status")).json();
       }
       return json({ ok: true, service: "family-tutor-discord", gateway });
     }
