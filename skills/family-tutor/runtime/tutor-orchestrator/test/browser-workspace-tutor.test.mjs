@@ -32,23 +32,34 @@ test('service owns learner sessions and submit reuses session',async()=>{
   await fs.mkdir(path.join(instance,'.family-tutor'),{recursive:true});
   await fs.writeFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),JSON.stringify({version:2,bindings:{maggie:{learner:'maggie',project_id:'p1',thread_id:'t1'}}}));
   const calls=[];
+  const adminCalls=[];
+  const helperPath=path.join(root,'node','admin.mjs');
   const run=runner(async args=>{
-    if(args[0]==='workspace'&&args[1]==='create') return {name:'Tutor'};
+    if(args[0]==='status') return {admin_helper:helperPath,daemon:{running:true}};
     if(args[0]==='session'&&args[1]==='start') return {session_id:'kid-session',target_id:'kid-tab'};
     if(args[0]==='platform') return platformResult({status:'submitted',project_id:'p1',thread_id:'t1'});
     if(args[0]==='session'&&args[1]==='stop') return {closed_tabs:1};
-    if(args[0]==='workspace'&&args[1]==='delete') return {deleted:true};
     throw new Error(`unexpected ${args.join(' ')}`);
   },calls);
-  const client=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run});
+  const loadAdmin=async value=>{
+    assert.equal(value,helperPath);
+    return {
+      ensureWorkspace:async(name,size)=>adminCalls.push({op:'ensure',name,size}),
+      deleteWorkspace:async(name,options)=>adminCalls.push({op:'delete',name,options}),
+    };
+  };
+  const client=new BrowserWorkspaceTutorClient({instanceDir:instance,skillRoot:root,run,loadAdmin});
   await client.start();
   await client.submit({learner:'maggie',prompt:'hi'});
   const submit=calls.find(call=>call.args[0]==='platform');
   assert.ok(submit.args.includes('--session-id'));
   assert.equal(submit.args[submit.args.indexOf('--session-id')+1],'kid-session');
   assert.equal(calls.filter(call=>call.args[0]==='session'&&call.args[1]==='start').length,1);
+  assert.deepEqual(adminCalls[0],{op:'ensure',name:'Tutor',size:5});
+  assert.deepEqual(calls[0].args,['status']);
   await client.stop();
-  assert.ok(calls.some(call=>call.args[0]==='workspace'&&call.args[1]==='delete'));
+  assert.deepEqual(adminCalls[1],{op:'delete',name:'Tutor',options:{force:true}});
+  assert.equal(calls.some(call=>call.args[0]==='workspace'),false);
 });
 
 test('legacy URL binding migrates to version 2 IDs',async()=>{
@@ -60,4 +71,23 @@ test('legacy URL binding migrates to version 2 IDs',async()=>{
   assert.equal(status.bindings[0].thread_id,'t-old');
   const persisted=JSON.parse(await fs.readFile(path.join(instance,'.family-tutor','browser-workspace-bindings.json'),'utf8'));
   assert.equal(persisted.version,2); assert.equal(persisted.bindings.maggie.thread_id,'t-old'); assert.equal(persisted.bindings.maggie.thread_url,undefined);
+});
+
+
+test('default runtime discovers Browser Workspace admin helper through status without lifecycle CLI',async()=>{
+  const instance=await fs.mkdtemp(path.join(os.tmpdir(),'ft-bw-instance-'));
+  const calls=[]; const adminCalls=[];
+  const run=runner(async args=>{
+    if(args[0]==='status') return {admin_helper:'/tmp/browser-workspace-admin.mjs'};
+    throw new Error(`unexpected ${args.join(' ')}`);
+  },calls);
+  const client=new BrowserWorkspaceTutorClient({instanceDir:instance,browserWorkspaceCommand:'browser-workspace',run,loadAdmin:async()=>({
+    ensureWorkspace:async(name,size)=>adminCalls.push({name,size}),
+    deleteWorkspace:async()=>{},
+  })});
+  await client.start();
+  assert.equal(calls[0].command,'browser-workspace');
+  assert.deepEqual(calls[0].args,['status']);
+  assert.deepEqual(adminCalls,[{name:'Tutor',size:5}]);
+  await client.stop();
 });
