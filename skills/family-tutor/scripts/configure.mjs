@@ -8,7 +8,7 @@ if(!instanceDir||!raw){ console.error('usage: configure.mjs <instance-dir> <json
 let patch;
 try{ patch=JSON.parse(raw); }catch{ console.error('configuration patch must be valid JSON'); process.exit(64); }
 if(!patch||Array.isArray(patch)||typeof patch!=='object'){ console.error('configuration patch must be a JSON object'); process.exit(64); }
-const allowed=new Set(['children','discord','browserBridge','browserWorkspace']);
+const allowed=new Set(['serviceName','children','discord','browserBridge','browserWorkspace']);
 for(const key of Object.keys(patch)) if(!allowed.has(key)){ console.error(`unsupported Family Tutor configuration field: ${key}`); process.exit(64); }
 if(patch.children!==undefined){
   if(!Array.isArray(patch.children)||patch.children.length===0){ console.error('children must be a non-empty array'); process.exit(64); }

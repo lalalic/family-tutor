@@ -32,7 +32,9 @@ function ensureDependencies(){
 
 if(action==='start'){
   ensureDependencies();
-  run(['start',path.join(runtime,'src','index.mjs'),'--name',name,'--namespace','family-tutor','--cwd',runtime,'--update-env']);
+  const existing=spawnSync('npx',['--yes','pm2','describe',name],{stdio:'ignore',env:serviceEnv});
+  if(existing.status===0) spawnSync('npx',['--yes','pm2','delete',name],{stdio:'ignore',env:serviceEnv});
+  run(['start',process.execPath,'--name',name,'--namespace','family-tutor','--cwd',runtime,'--update-env','--','src/index.mjs']);
   run(['save']);
 }else if(action==='restart'){
   ensureDependencies();
