@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ChannelType, Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { loadConfig } from './config.mjs';
 import { CodexBackend } from './backends/codex.mjs';
@@ -375,7 +376,7 @@ async function resolveMentionedChild(command){
   validateChildChannel(child,channel);
   return child;
 }
-const FAMILY_TUTOR_SKILL_ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),'../../..');
+const FAMILY_TUTOR_SKILL_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 const LEARNER_PROFILE_TEMPLATE_FILE=path.join(FAMILY_TUTOR_SKILL_ROOT,'setup','learner-profile-template.md');
 const BOOTSTRAP_FILE=path.join(FAMILY_TUTOR_SKILL_ROOT,'bootstrap','latest.md');
 
