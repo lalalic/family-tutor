@@ -3,13 +3,14 @@
   "id": "family-tutor",
   "name": "Family Tutor",
   "description": "Persistent family AI tutor with separate learner context, Browser Workspace-backed ChatGPT sessions, Discord routing, and parent learning telemetry.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "runtime": {
     "type": "node",
     "serviceScript": "skills/family-tutor/scripts/service.mjs",
     "initScript": "skills/family-tutor/scripts/init-instance.mjs",
     "doctorScript": "skills/family-tutor/scripts/doctor.mjs",
-    "defaultInstance": "instance"
+    "defaultInstance": "instance",
+    "configureScript": "skills/family-tutor/scripts/configure.mjs"
   },
   "mcp": {
     "provider": "family-tutor",

@@ -17,6 +17,8 @@ if(fs.existsSync(configPath)){
     check(Array.isArray(cfg.children)&&cfg.children.every(c=>c.id&&c.name),'every child has canonical id and name');
     check(Array.isArray(cfg.children)&&cfg.children.every(c=>!Object.keys(c).some(key=>/project|tab|discordChannelId/i.test(key))),'children keep no browser/provider bindings');
     check(Boolean(cfg.discord?.parentChannelId),'parent channel id is configured');
+    check(cfg.browserBridge?.enabled===true,'loopback Family Tutor MCP bridge is enabled');
+    check(['127.0.0.1','localhost','::1'].includes(String(cfg.browserBridge?.host||'127.0.0.1')),'Family Tutor MCP bridge host is loopback');
     if((cfg.discord?.mode||'cloudflare')==='local') check(Boolean(process.env.DISCORD_BOT_TOKEN),'DISCORD_BOT_TOKEN is exported for local Discord mode');
     else check(true,'Discord transport is managed by Cloudflare');
   }catch(error){
