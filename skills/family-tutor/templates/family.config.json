@@ -14,5 +14,10 @@
   "browserWorkspace": {
     "enabled": true,
     "workspace": "Tutor"
+  },
+  "browserBridge": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 43117
   }
 }
