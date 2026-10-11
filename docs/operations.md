@@ -3,6 +3,11 @@
 This is the production contract for the shared MCP and Discord services. The
 deployment platform owns TLS, process supervision, secret storage, and alerts.
 
+The explicit activation gate is documented in
+[`hosted-activation.md`](hosted-activation.md). It separates safe public
+probes from owner-controlled deployment, authorization, and real Discord
+acceptance; passing `npm run check` alone is not a hosted activation claim.
+
 ## Configuration
 
 Required at deployment time:
