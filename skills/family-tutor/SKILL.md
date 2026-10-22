@@ -1,6 +1,9 @@
 ---
 name: family-tutor
 description: Create and operate a persistent family AI tutor with Discord child channels, parent observation/control, separate learner context, Browser Workspace-backed ChatGPT sessions, and a PM2-managed tutor orchestrator.
+requires:
+  skills:
+    - daemon-service-manage
 ---
 
 # family-tutor
@@ -93,3 +96,7 @@ node scripts/service.mjs stop <instance-dir>
 - A tutor thread must map to exactly one child.
 - Parent control commands must come only from the configured parent control channel.
 - Treat child personal data as private runtime data.
+
+## Persistent service bootstrap
+
+This Skill owns `family-tutor/orchestrator`. The `daemon-service-manage` Skill is required. Run `node skills/family-tutor/bin/services.mjs setup` for idempotent registration through `serviceman`; run `status` to inspect or `doctor` to fail if a service is not online. Existing process configuration is preserved. Do not create unqualified legacy PM2 names.
