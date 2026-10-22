@@ -25,6 +25,7 @@
     "skills/family-tutor/setup/**",
     "skills/family-tutor/templates/**",
     "skills/family-tutor/scripts/**",
+    "skills/family-tutor/bin/**",
     "skills/family-tutor/mcp-server/package.json",
     "skills/family-tutor/mcp-server/package-lock.json",
     "skills/family-tutor/mcp-server/src/**",
